@@ -320,8 +320,8 @@ _SPATIAL_DEFAULTS: dict = {
     "enabled": True,
     "auto": False,           # surround sources only (5.1/7.1); off = Sonar's way
     "mode": "headphones",    # "headphones" | "speakers"
-    "immersion": 50,         # 0–100, pending USB
-    "distance": 50,          # 0–100, pending USB
+    "immersion": 50,         # 0–100, Performance ↔ Immersion (neighbour spread)
+    "distance": 50,          # 0–100, plate reverb wet mix
     # Per-virtual-speaker gain in dB (Sonar's virtualSurroundChannels gain),
     # absent = 0 dB everywhere. Read back by the daemon in
     # sonar_to_pipewire._load_channel_gains.
@@ -2450,7 +2450,8 @@ class SpatialAudioWidget(QWidget):
     Toggle ON  → sonar-game-eq targets effect_input.virtual-surround-7.1-hesuvi
     Toggle OFF → sonar-game-eq targets physical output directly
 
-    Mode / Immersion / Distance: saved state, pending USB captures for full impl.
+    Mode / Immersion / Distance: saved here, rendered by the daemon's HeSuVi
+    chain (see sonar_to_pipewire.generate_hesuvi_conf).
     """
     state_changed = Signal()
 

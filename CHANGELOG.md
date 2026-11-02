@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Performance / Immersion now changes the sound field, not the volume.** The slider used to add 0 to 12 dB of gain in front of the headphone render. A louder signal, squeezed by the limiter, doesn't place sounds any differently. Now each virtual speaker also plays its neighbours' sound a few milliseconds later, the way the walls of a room reflect it. Towards Performance every speaker stays on its own, for the sharpest direction; towards Immersion the sound widens and wraps around you while sources stay where they are. The centre stays clean for dialogue and the level holds steady across the slider. The default position keeps exactly the volume it had before. The change applies live, without cutting the sound.
+
 ## [1.7.1] - 1 November 2026
 
 ### Added

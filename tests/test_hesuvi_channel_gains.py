@@ -112,12 +112,76 @@ def test_diff_controls_gain_only(monkeypatch, tmp_path):
     }
 
 
-def test_diff_controls_immersion_moves_every_gain_stage(monkeypatch, tmp_path):
-    old = _gen(monkeypatch, tmp_path / "a", immersion=50)
-    new = _gen(monkeypatch, tmp_path / "b", immersion=25)
-    assert _s2p.diff_hesuvi_controls(old, new) == {
-        f"gain{ch}:Gain": 3.0 for ch in _s2p._HESUVI_CHANNELS
-    }
+def test_diff_controls_immersion_moves_only_the_immersion_mixers(monkeypatch, tmp_path):
+    """Immersion is a live control over its whole range, 0 included, and no
+    longer touches the gain stages (it is spatial now, not loudness)."""
+    for old_pct, new_pct in ((50, 25), (0, 100), (100, 0)):
+        old = _gen(monkeypatch, tmp_path / f"a{old_pct}", immersion=old_pct)
+        new = _gen(monkeypatch, tmp_path / f"b{new_pct}", immersion=new_pct)
+        controls = _s2p.diff_hesuvi_controls(old, new)
+        assert controls, (old_pct, new_pct)
+        assert all(key.startswith("sp") for key in controls)
+        direct, spread = _s2p._immersion_mix_gains(new_pct)
+        for ch, sources in _s2p._IMMERSION_SPREAD.items():
+            assert controls[f"sp{ch}:Gain 1"] == direct[ch]
+            for i in range(2, 2 + len(sources)):
+                assert controls[f"sp{ch}:Gain {i}"] == spread
+
+
+def test_immersion_does_not_change_the_level(monkeypatch, tmp_path):
+    """Every gain stage carries the fixed make-up gain whatever Immersion is:
+    the old 50 % default level, so nobody's volume moves."""
+    for pct in (0, 50, 100):
+        text = _gen(monkeypatch, tmp_path / str(pct), immersion=pct)
+        for ch in _s2p._HESUVI_CHANNELS:
+            assert f"name = gain{ch}  label = bq_highshelf  control = {{ Freq = 10  Q = 0.7071  Gain = 6.0 }}" in text
+
+
+def test_performance_is_the_bare_hrtf_render():
+    direct, spread = _s2p._immersion_mix_gains(0)
+    assert spread == 0.0
+    assert set(direct.values()) == {1.0}
+
+
+def test_immersion_keeps_each_channel_power_constant():
+    """The neighbour copies are delayed (uncorrelated with the direct sound),
+    so a channel's power is direct² plus one spread² per copy it sends."""
+    copies = {ch: 0 for ch in _s2p._IMMERSION_SPREAD}
+    for sources in _s2p._IMMERSION_SPREAD.values():
+        for src in sources:
+            copies[src] += 1
+    for pct in (0, 10, 50, 77, 100):
+        direct, spread = _s2p._immersion_mix_gains(pct)
+        for ch, n in copies.items():
+            assert abs(direct[ch] ** 2 + n * spread ** 2 - 1.0) < 1e-3, (pct, ch)
+    assert _s2p._immersion_mix_gains(100)[1] == _s2p._IMMERSION_MAX_SPREAD
+    assert _s2p._immersion_mix_gains(250) == _s2p._immersion_mix_gains(100)
+    assert _s2p._immersion_mix_gains(-5) == _s2p._immersion_mix_gains(0)
+
+
+def test_immersion_graph_wiring(monkeypatch, tmp_path):
+    """gain → delay + own mixer; neighbours' delays → mixer; mixer → that
+    speaker's convolvers. LFE has no direction and skips the stage."""
+    text = _gen(monkeypatch, tmp_path, immersion=50)
+    for ch, sources in _s2p._IMMERSION_SPREAD.items():
+        assert f'label = delay  name = dly{ch}' in text
+        assert f'{{ output = "gain{ch}:Out"  input = "dly{ch}:In" }}' in text
+        assert f'{{ output = "gain{ch}:Out"  input = "sp{ch}:In 1" }}' in text
+        for i, src in enumerate(sources, start=2):
+            assert f'{{ output = "dly{src}:Out"  input = "sp{ch}:In {i}" }}' in text
+        # The centre takes nothing from its neighbours: dialogue stays put.
+        assert ch != "FC" or not sources
+    for ch, convs in _s2p._HESUVI_COPY_CONV_LINKS:
+        src = "gainLFE" if ch == "LFE" else f"sp{ch}"
+        for conv in convs:
+            assert f'{{ output = "{src}:Out"  input = "{conv}:In" }}' in text
+    # No gain stage feeds a convolver directly any more, except LFE's.
+    assert '"gainFL:Out"  input = "convFL_L:In"' not in text
+    assert "spLFE" not in text and "dlyLFE" not in text
+    # Delays stay inside the early-reflection window and the node's buffer.
+    assert all(0.0 < d <= 0.02 for d in _s2p._IMMERSION_DELAY_S.values())
+    assert max(_s2p._IMMERSION_DELAY_S.values()) < _s2p._IMMERSION_MAX_DELAY_S
+    assert len(set(_s2p._IMMERSION_DELAY_S.values())) == len(_s2p._IMMERSION_DELAY_S)
 
 
 def _gen_distance(monkeypatch, tmp_path, distance):

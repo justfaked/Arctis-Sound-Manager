@@ -315,7 +315,10 @@ def _conf_has_bare_ladspa(content: str) -> bool:
 #    module: the channel's stereo downmix (see _downmix_module), which the
 #    Spatial-off path uses for a stereo destination instead of dropping
 #    every channel but FL/FR.
-_CONF_VERSION = 6
+# 7: Immersion is spatial now (see _IMMERSION_SPREAD): every HeSuVi chain
+#    gained a delay per channel and a mixer per virtual speaker between the
+#    gain stages and the convolvers.
+_CONF_VERSION = 7
 
 _CONF_VERSION_RE = re.compile(r"^\s*#\s*ASM-CONF-VERSION:\s*(\d+)\s*$", re.MULTILINE)
 
@@ -392,7 +395,7 @@ def _load_spatial_pct(channel: str) -> tuple[int, int]:
 
 
 # Per-channel virtual-speaker gain (Sonar's virtualSurroundChannels[].gain),
-# applied on top of Immersion in each channel's gain{ch} node. Range kept
+# applied on top of the fixed make-up gain in each channel's gain{ch} node. Range kept
 # narrow on the boost side: the stereo mixers sum up to eight convolvers and
 # the output limiter is the only headroom stage.
 CHANNEL_GAIN_MIN_DB = -12.0
@@ -3677,7 +3680,8 @@ def sync_stream_mix_conf(enabled: bool | None = None) -> bool:
 
 # One-line HeSuVi nodes whose control values can change without the graph
 # changing shape (see generate_hesuvi_conf): the per-channel gain stages
-# (Immersion + speaker level) and the Distance plate reverb's wet mix.
+# (speaker level), the Immersion mixers, the downmix mixers and the Distance
+# plate reverb's wet mix.
 _HESUVI_GAIN_LINE_RE = re.compile(
     r'^(\s*\{ type = builtin  name = ((?:gain|lvl)\w+)  label = bq_highshelf'
     r'  control = \{ Freq = \S+  Q = \S+  Gain = )([-\d.]+)( \} \})$'
@@ -3686,8 +3690,8 @@ _HESUVI_PLATE_LINE_RE = re.compile(
     r'^(\s*\{ type = ladspa  name = (plate_[LR])  .*"Dry/wet mix" = )([-\d.]+)( \} \})$'
 )
 _HESUVI_HEADER_LINE_PREFIX = "# HeSuVi 7.1 Virtual Surround  |"
-_DOWNMIX_MIXER_LINE_RE = re.compile(
-    r'^(\s*\{ type = builtin  label = mixer  name = (dmix[LR])  control = \{ )(.*)( \} \})$'
+_MIXER_LINE_RE = re.compile(
+    r'^(\s*\{ type = builtin  label = mixer  name = (dmix[LR]|sp[A-Z]+)  control = \{ )(.*)( \} \})$'
 )
 _MIXER_GAIN_RE = re.compile(r'"Gain (\d+)" = ([-\d.]+)')
 
@@ -3712,7 +3716,7 @@ def diff_hesuvi_controls(old_text: str, new_text: str) -> dict[str, float] | Non
             continue
         if old_line.startswith(_HESUVI_HEADER_LINE_PREFIX) and new_line.startswith(_HESUVI_HEADER_LINE_PREFIX):
             continue
-        old_dm, new_dm = _DOWNMIX_MIXER_LINE_RE.match(old_line), _DOWNMIX_MIXER_LINE_RE.match(new_line)
+        old_dm, new_dm = _MIXER_LINE_RE.match(old_line), _MIXER_LINE_RE.match(new_line)
         if old_dm and new_dm:
             if old_dm.group(2) != new_dm.group(2):
                 return None
@@ -3827,7 +3831,7 @@ def apply_spatial_audio_change() -> bool:
 
     Returns True when it restarted the filter-chain, False otherwise.
     """
-    # Gain stages (Immersion, speaker levels) and the reverb's wet mix go to
+    # Gain stages (speaker levels), the Immersion mixers and the reverb's wet mix go to
     # the running chain directly; only a change of shape restarts it.
     if not regenerate_hesuvi_if_changed(live_apply=True):
         return False
@@ -4791,6 +4795,57 @@ _HESUVI_CONV_MIX_LINKS = [
     ("convLFE_R", "mixR", 8), ("convLFE_L", "mixL", 8),
 ]
 
+# Immersion — Sonar's Performance ↔ Immersion slider. Each virtual speaker
+# also plays a delayed copy of its neighbours around the head, the way early
+# room reflections reach a listener a few milliseconds after the direct sound.
+# The precedence effect keeps every source where it was (the direct sound
+# arrives first); the late copies widen it and wrap the sound field round the
+# head. Performance (0) is the bare HRTF render: every channel on its own
+# speaker, sharpest localisation. Nothing leaks *into* the centre, so
+# dialogue stays put; LFE has no direction and is left alone.
+#
+# Virtual speaker → the neighbours whose delayed copy it also plays.
+_IMMERSION_SPREAD: dict[str, tuple[str, ...]] = {
+    "FC": (),
+    "FL": ("FC", "SL"),
+    "FR": ("FC", "SR"),
+    "SL": ("FL", "RL"),
+    "SR": ("FR", "RR"),
+    "RL": ("SL", "RR"),
+    "RR": ("SR", "RL"),
+}
+# One delay per source channel, all different (and inside the 5–20 ms
+# early-reflection window) so the copies don't line up into a single echo.
+_IMMERSION_DELAY_S: dict[str, float] = {
+    "FC": 0.005, "FL": 0.008, "FR": 0.009,
+    "SL": 0.012, "SR": 0.013, "RL": 0.016, "RR": 0.018,
+}
+_IMMERSION_MAX_DELAY_S = 0.05
+# Gain of each neighbour copy at Immersion 100.
+_IMMERSION_MAX_SPREAD = 0.5
+# Fixed level into the HRTF stage. Immersion used to be 0–12 dB of plain gain
+# here, so the 50 % default ran at +6 dB; keeping that as a constant leaves
+# every default install exactly as loud as before (the limiter still guards it).
+_HESUVI_MAKEUP_DB = 6.0
+
+
+def _immersion_mix_gains(immersion_pct: int) -> tuple[dict[str, float], float]:
+    """``({speaker: direct gain}, neighbour gain)`` for the Immersion mixers.
+
+    The neighbour copies are delayed, so they add by power, not amplitude.
+    A channel copied to *n* neighbours keeps ``direct² + n·neighbour² = 1``,
+    which holds every channel's level steady across the whole slider.
+    """
+    spread = max(0, min(100, immersion_pct)) / 100.0 * _IMMERSION_MAX_SPREAD
+    copies = {ch: 0 for ch in _IMMERSION_SPREAD}
+    for sources in _IMMERSION_SPREAD.values():
+        for src in sources:
+            copies[src] += 1
+    direct = {
+        ch: round(math.sqrt(1.0 - n * spread * spread), 4) for ch, n in copies.items()
+    }
+    return direct, round(spread, 4)
+
 
 
 def _downmix_module(channel: str, destination: str,
@@ -5067,8 +5122,10 @@ def generate_hesuvi_conf(
     Parameters
     ----------
     immersion_pct:
-        0-100, maps linearly to 0.0-12.0 dB gain applied uniformly to all
-        8 channels *before* the HRTF convolution via bq_highshelf nodes.
+        0-100, Performance ↔ Immersion: how much of each virtual speaker's
+        neighbours it also plays, delayed like an early reflection, before
+        the HRTF convolution (see ``_IMMERSION_SPREAD``). 0 is the bare HRTF
+        render; the level stays steady across the range.
     distance_pct:
         0-100, maps linearly to 0.0-1.0 wet mix for the LADSPA plate reverb
         applied *after* the stereo mixers.
@@ -5118,7 +5175,7 @@ def generate_hesuvi_conf(
     immersion_pct = max(0, min(100, immersion_pct))
     distance_pct = max(0, min(100, distance_pct))
 
-    immersion_db = immersion_pct / 100.0 * 12.0
+    immersion_direct, immersion_spread = _immersion_mix_gains(immersion_pct)
     distance_wet = distance_pct / 100.0
     # Volume Boost (issue #237): the channel's own EQ conf already bakes this
     # into its "boost" node (see generate_sonar_eq_conf), upstream of this
@@ -5138,15 +5195,32 @@ def generate_hesuvi_conf(
     for ch in _HESUVI_CHANNELS:
         node_lines.append(f'{I}{{ type = builtin  label = copy  name = copy{ch} }}')
 
-    # 2. Gain nodes (Immersion + per-channel gain — bq_highshelf between copy
-    #    and convolvers). A 10 Hz high shelf is a broadband gain for audio.
-    node_lines.append(f"{I}# immersion gain")
+    # 2. Gain nodes (fixed make-up + per-channel speaker level — bq_highshelf
+    #    between copy and convolvers). A 10 Hz high shelf is a broadband gain
+    #    for audio.
+    node_lines.append(f"{I}# speaker gain")
     for ch in _HESUVI_CHANNELS:
-        ch_db = immersion_db + channel_gains[ch]
+        ch_db = _HESUVI_MAKEUP_DB + channel_gains[ch]
         node_lines.append(
             f'{I}{{ type = builtin  name = gain{ch}  label = bq_highshelf'
             f'  control = {{ Freq = 10  Q = 0.7071  Gain = {ch_db:.1f} }} }}'
         )
+
+    # 2b. Immersion: each source channel delayed once, then every virtual
+    #     speaker mixes its own channel with its neighbours' delayed copies.
+    #     Always emitted (at Performance the copies are at gain 0) so the
+    #     slider stays a live control change over its whole range.
+    node_lines.append(f"{I}# immersion: neighbours' delayed copies (early reflections)")
+    for ch in _IMMERSION_SPREAD:
+        node_lines.append(
+            f'{I}{{ type = builtin  label = delay  name = dly{ch}'
+            f'  config = {{ "max-delay" = {_IMMERSION_MAX_DELAY_S} }}'
+            f'  control = {{ "Delay (s)" = {_IMMERSION_DELAY_S[ch]} }} }}'
+        )
+    for ch, sources in _IMMERSION_SPREAD.items():
+        mix_gains = [immersion_direct[ch]] + [immersion_spread] * len(sources)
+        ctl = "  ".join(f'"Gain {i}" = {g}' for i, g in enumerate(mix_gains, start=1))
+        node_lines.append(f'{I}{{ type = builtin  label = mixer  name = sp{ch}  control = {{ {ctl} }} }}')
 
     # 3. Convolver nodes
     hrir_path = _HRIR_DEST  # ensure_hrir_materialized() guarantees this exists
@@ -5177,8 +5251,8 @@ def generate_hesuvi_conf(
         )
 
     # 6. Output limiter (independent of Distance) — prevents hot HRIRs
-    #    (e.g. Nahimic 3) from clipping on loud passages. The Immersion slider
-    #    adds up to +12 dB broadband *before* the HRTF convolution, and each
+    #    (e.g. Nahimic 3) from clipping on loud passages. The gain stages add
+    #    up to +12 dB broadband *before* the HRTF convolution, and each
     #    stereo mixer sums four convolvers, so peaks can exceed 0 dBFS with no
     #    headroom stage. A fast-lookahead limiter tames only those peaks while
     #    leaving quieter content untouched. Requires swh-plugins (same package
@@ -5188,7 +5262,7 @@ def generate_hesuvi_conf(
     #    (issue #100).
     #
     #    Issue #237: this limiter's 0.1s release makes it a de-facto permanent
-    #    compressor on Immersion-heavy content, not just an occasional
+    #    compressor on loud, gain-heavy content, not just an occasional
     #    clipping guard — it reabsorbs Volume Boost's upstream gain about as
     #    fast as the EQ's "boost" node (see generate_sonar_eq_conf) adds it,
     #    silently capping every channel with Spatial Audio on at this fixed
@@ -5233,12 +5307,22 @@ def generate_hesuvi_conf(
     for ch in _HESUVI_CHANNELS:
         link_lines.append(f'{L}{{ output = "copy{ch}:Out"  input = "gain{ch}:In" }}')
 
-    # gain → convolver links
-    link_lines.append(f"{L}# gain → convolvers")
+    # gain → immersion delays and mixers
+    link_lines.append(f"{L}# gain → immersion")
+    for ch in _IMMERSION_SPREAD:
+        link_lines.append(f'{L}{{ output = "gain{ch}:Out"  input = "dly{ch}:In" }}')
+    for ch, sources in _IMMERSION_SPREAD.items():
+        link_lines.append(f'{L}{{ output = "gain{ch}:Out"  input = "sp{ch}:In 1" }}')
+        for i, src in enumerate(sources, start=2):
+            link_lines.append(f'{L}{{ output = "dly{src}:Out"  input = "sp{ch}:In {i}" }}')
+
+    # immersion mixers (LFE: its gain stage) → convolver links
+    link_lines.append(f"{L}# immersion → convolvers")
     for ch, conv_list in _HESUVI_COPY_CONV_LINKS:
+        src_port = f"sp{ch}:Out" if ch in _IMMERSION_SPREAD else f"gain{ch}:Out"
         for conv in conv_list:
             link_lines.append(
-                f'{L}{{ output = "gain{ch}:Out"  input = "{conv}:In" }}'
+                f'{L}{{ output = "{src_port}"  input = "{conv}:In" }}'
             )
 
     # convolver → mixer links
