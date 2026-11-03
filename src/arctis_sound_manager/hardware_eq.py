@@ -52,20 +52,36 @@ class EqBand:
     filter_type: int = FILTER_PEAK
 
 
-def encode_band(band: EqBand) -> bytes:
+#: How a family's filter payload encodes a band's gain (`hardware_eq.gain_encoding`).
+#: decibel_signed: tenths of a dB in a signed byte, 0 dB = 0x00 (Nova 7 Gen 2,
+#: Nova 3 Wireless, GameBuds, Elite: `(* 10 gain)` then `int16->bytes`).
+#: offset_binary: half dBs above -10 dB, 0-40, 0 dB = 20 (the Nova 5's
+#: gain_float_to_int, `(* 2 (+ 10 gain))` capped to ±10 dB).
+GAIN_DECIBEL_SIGNED = "decibel_signed"
+GAIN_OFFSET_BINARY = "offset_binary"
+
+
+def encode_band(band: EqBand, gain_encoding: str = GAIN_DECIBEL_SIGNED) -> bytes:
     """Six bytes: frequency, filter type, gain, Q.
 
-    Gain is decidecibels in a signed byte — the specs spell out 0 dB = 0x00,
-    12 dB = 0x78, -12 dB = 0x88 — and Q is thousandths in 16 bits, both
+    Gain is decidecibels in a signed byte on most families — the specs spell
+    out 0 dB = 0x00, 12 dB = 0x78, -12 dB = 0x88 — but half dBs above -10 dB
+    on the Nova 5 (see GAIN_OFFSET_BINARY). Q is thousandths in 16 bits, both
     little-endian like every other multi-byte field in these frames.
     """
     frequency = max(20, min(20000, int(round(band.frequency))))
-    gain = max(-128, min(127, int(round(band.gain_db * 10))))
+    if gain_encoding == GAIN_OFFSET_BINARY:
+        gain_byte = bytes([max(0, min(40, int(2 * (10 + band.gain_db))))])
+    elif gain_encoding == GAIN_DECIBEL_SIGNED:
+        gain = max(-128, min(127, int(round(band.gain_db * 10))))
+        gain_byte = gain.to_bytes(1, "little", signed=True)
+    else:
+        raise ValueError(f"unknown gain encoding {gain_encoding!r}")
     q = max(200, min(10000, int(round(band.q * 1000))))
     return (
         frequency.to_bytes(2, "little")
         + bytes([band.filter_type & 0xFF])
-        + gain.to_bytes(1, "little", signed=True)
+        + gain_byte
         + q.to_bytes(2, "little")
     )
 
@@ -78,13 +94,42 @@ def bands_from_gains(gains_db: list[float],
             for f, g in zip(frequencies, gains_db)]
 
 
+# GG's own ten-band layout for the Elite family, read off the 0x1B frames it
+# sends a Nova Pro Omni (#327): 32 and 64 Hz rather than 31/62, Q 1.414, and
+# the two end bands shelving — its Bass Boost, and every Custom curve GG
+# derives from it, put a low shelf on band 1 and a high shelf on band 10.
+# A peak at 31 Hz or 16 kHz is next to inaudible on music, which is how the
+# Elite's Custom EQ seemed to do nothing on exactly the two sliders the test
+# in #327 asked for (62 Hz and 8 kHz were heard plainly).
+GG_SHELVING_FREQUENCIES = (32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000)
+GG_SHELVING_Q = 1.414
+
+
+def shelving_bands_from_gains(gains_db: list[float]) -> list[EqBand]:
+    """ASM's ten gains on GG's layout: low shelf, eight peaks, high shelf."""
+    bands = bands_from_gains(gains_db, GG_SHELVING_FREQUENCIES, GG_SHELVING_Q)
+    last = len(bands) - 1
+    return [EqBand(b.frequency, b.gain_db, b.q,
+                   FILTER_LOW_SHELF if i == 0
+                   else FILTER_HIGH_SHELF if i == last else b.filter_type)
+            for i, b in enumerate(bands)]
+
+
+#: How a profile's `hardware_eq.band_layout` turns the sliders into bands.
+BAND_LAYOUTS = {
+    "graphic": bands_from_gains,
+    "shelving": shelving_bands_from_gains,
+}
+
+
 def encode_parametric_eq(bands: list[EqBand], name: str = "Custom",
                          connection: int = CONNECTION_WIRELESS,
                          preset_type: int = PRESET_CUSTOM,
                          name_command: int = 0xA7,
                          band_command: int = 0x33,
                          commit_command: int | None = None,
-                         bands_carry_connection: bool = True) -> list[list[int]]:
+                         bands_carry_connection: bool = True,
+                         gain_encoding: str = GAIN_DECIBEL_SIGNED) -> list[list[int]]:
     """Frames for the parametric families (Nova 7 Gen 2: 0xA7, Nova 5: 0xA5).
 
     Each frame starts with its **opcode**, not with the `report_id` the specs
@@ -115,7 +160,8 @@ def encode_parametric_eq(bands: list[EqBand], name: str = "Custom",
 
     The band frame differs between families, and getting it wrong shifts every
     byte of the curve: the Nova 7 Gen 2 repeats the connection there, the
-    Nova 5 and the GameBuds do not. Hence `bands_carry_connection`.
+    Nova 5 and the GameBuds do not. Hence `bands_carry_connection`. The Nova 5
+    also encodes each gain its own way (`gain_encoding`, see encode_band).
 
     Returned as byte lists ready for CoreEngine.send_command(), which pads
     each one to the profile's frame length.
@@ -126,7 +172,7 @@ def encode_parametric_eq(bands: list[EqBand], name: str = "Custom",
     name_bytes = list(name.encode("ascii", errors="ignore")[:32])
     payload: list[int] = []
     for band in bands:
-        payload += list(encode_band(band))
+        payload += list(encode_band(band, gain_encoding))
 
     band_frame = [band_command]
     if bands_carry_connection:
@@ -190,6 +236,77 @@ def encode_elite_parametric_eq(bands: list[EqBand], name: str = "Custom",
     for band in bands:
         frame += list(encode_band(band))
     return [frame]
+
+
+# ── Ten-band EQ (Nova Elite / Pro Omni microphone and Bluetooth) ────────────
+#
+# ten_band_eq_mic (0x1D) and ten_band_eq_bt (0x1F) in base_arctis_nova_elite_tx
+# take one HIDFEATURE frame of 1036 bytes, like parametric_eq, but carry ten
+# plain gains instead of filters:
+#
+#   report_id, command, onboard slot, alias (6), name (61), 10 gains
+#
+# each gain one signed byte in tenths of a dB (transform_gains_ui_to_fw:
+# 0x88 = -12 dB ... 0x78 = +12 dB). The slot selects the preset; the spec has
+# no other select command for these two on this family.
+#
+# The presets are GG's own (engine database, device_game_eq_presets, GG 95):
+# what its UI lists for supported mode MICROPHONE (32) and BLUETOOTH (16), and
+# whose gains it sends with the slot. Only the gains go on the wire; GG's
+# frequencies are fixed by the firmware. One exception: the database's Bass
+# Boost row is a copy of Smiley's. GG's UI hardcodes the real curve (its Nova
+# Pro module), and an Elite base reads that one back for its Bass Boost slot
+# (#331 probe), so it is the one used here.
+
+TEN_BAND_GAIN_MIN_DB = -12.0
+TEN_BAND_GAIN_MAX_DB = 12.0
+
+
+@dataclass(frozen=True)
+class OnboardPreset:
+    slot: int
+    name: str
+    alias: str
+    gains_db: tuple[float, ...]
+
+
+_MIC_FLAT = (0.0,) * 10
+
+#: The slots ten_band_eq_mic maps names to (spec api ten_band_eq_mic). The
+#: Omni adds Walkie Talkie as slot 9; the Elite's spec stops at 8 (Custom).
+MIC_PRESETS = (
+    OnboardPreset(0, "Flat", "FLAT", _MIC_FLAT),
+    OnboardPreset(1, "Balanced", "BAL", (-12.0, 0.0, 0.0, -3.0, -2.0, 0.0, 2.0, 3.0, 1.0, 0.0)),
+    OnboardPreset(2, "Broadcast High Pitch", "BC HI", (-12.0, -12.0, -3.0, 6.0, 3.0, -2.5, 0.0, 3.0, 4.0, 4.0)),
+    OnboardPreset(3, "Broadcast Low Pitch", "BC LO", (-12.0, 2.0, 5.0, 2.0, -3.0, -2.0, 0.0, 3.0, 4.0, 4.0)),
+    OnboardPreset(4, "Clarity Low Pitch", "CT LO", (-12.0, -3.0, -2.5, 0.0, 0.0, 0.0, 3.0, 4.0, 4.0, 4.0)),
+    OnboardPreset(5, "Clarity High Pitch", "CT HI", (-12.0, -12.0, -4.0, -4.0, 0.0, 0.0, 3.0, 4.0, 4.0, 4.0)),
+    OnboardPreset(6, "Deep Voice", "DEEP", (-12.0, 4.0, 4.0, 3.0, 0.0, -3.0, -1.0, 0.0, 0.0, 0.0)),
+    OnboardPreset(7, "Less Nasal", "NASAL-", (-12.0, 0.0, 0.0, 0.0, -2.0, -4.0, -2.0, 2.0, 4.0, 0.0)),
+    OnboardPreset(9, "Walkie Talkie", "WKTK", (-12.0, -12.0, -12.0, -12.0, 5.0, 6.0, 6.0, 5.0, -12.0, -12.0)),
+)
+
+#: The slots ten_band_eq_bt maps names to (spec api ten_band_eq_bt).
+BLUETOOTH_PRESETS = (
+    OnboardPreset(0, "Flat", "FLAT", (0.0,) * 10),
+    OnboardPreset(1, "Bass Boost", "BASS", (3.5, 5.5, 4.0, 1.0, -1.5, -1.5, -1.0, -1.0, -1.0, -1.0)),
+    OnboardPreset(2, "Focus", "FOCUS", (-5.0, -3.5, -1.0, -3.5, -2.5, 4.0, 6.0, 3.5, -3.5, 0.0)),
+    OnboardPreset(3, "Smiley", "SMILEY", (3.0, 3.5, 1.5, -1.5, -4.0, -4.0, -2.5, 1.5, 3.0, 4.0)),
+)
+
+ONBOARD_PRESETS = {"microphone": MIC_PRESETS, "bluetooth": BLUETOOTH_PRESETS}
+
+
+def encode_ten_band_eq(command: int, preset: OnboardPreset,
+                       report_id: int = 0x01) -> list[int]:
+    """The frame ten_band_eq_mic / ten_band_eq_bt send for *preset*."""
+    frame = [report_id, command, preset.slot]
+    frame += _fixed_ascii(preset.alias, _ELITE_ALIAS_LENGTH)
+    frame += _fixed_ascii(preset.name, _ELITE_NAME_LENGTH)
+    for gain in preset.gains_db:
+        gain = min(max(gain, TEN_BAND_GAIN_MIN_DB), TEN_BAND_GAIN_MAX_DB)
+        frame.append(round(gain * 10) & 0xFF)
+    return frame
 
 
 #: Encoders a device profile can name in `hardware_eq.format`.

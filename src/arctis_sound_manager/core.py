@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import asyncio
+import errno
 import functools
 import json
 import logging
@@ -29,6 +30,8 @@ from arctis_sound_manager.constants import (PULSE_AUX_NODE_NAME,
                                             PULSE_GAME_NODE_NAME,
                                             PULSE_MEDIA_NODE_NAME,
                                             STEELSERIES_VENDOR_ID)
+from arctis_sound_manager.hidraw_transport import (USB_TRANSPORT_STATE_FILE, HidrawTransport,
+                                                   find_hidraw_nodes)
 from arctis_sound_manager.loopback_manager import (LoopbackManager, make_specs,
                                                    current_pipewire_socket_signature)
 from arctis_sound_manager.channel_volumes import load_channel_volumes
@@ -37,7 +40,8 @@ from arctis_sound_manager.settings import DeviceSettings, GeneralSettings
 from arctis_sound_manager.usb_devices_monitor import USBDevicesMonitor
 from arctis_sound_manager.charging_case import ChargingCaseMonitor
 from arctis_sound_manager.usb_reenumerate import (reset_via_usbfs,
-                                                  sysfs_device_dir)
+                                                  sysfs_device_dir,
+                                                  refresh_libusb_context, sysfs_has_device)
 from arctis_sound_manager.utils import ObservableDict
 from arctis_sound_manager.oled_manager import OledManager
 
@@ -125,9 +129,43 @@ _USB_PERMISSION_WATCH_INTERVAL = 30.0
 # Omni's mic noise reduction needs both: an on/off byte telling the firmware
 # which microphones are being adjusted, and a level the firmware requires to
 # stay >= 1 even while that feature is off.
+# GeneralSettings.usb_transport: how ASM talks to the headset.
+_USB_TRANSPORT_LIBUSB = 0
+_USB_TRANSPORT_HIDRAW = 1
+
+
+# Module functions rather than methods: plenty of tests drive CoreEngine code
+# with a MagicMock standing in for the engine, where any method call returns
+# a truthy mock and would send everything down the hidraw path.
+def _wants_hidraw(engine) -> bool:
+    """True when the user chose the hidraw transport in Settings."""
+    choice = getattr(getattr(engine, 'general_settings', None), 'usb_transport', 0)
+    return isinstance(choice, int) and not isinstance(choice, bool) and choice == _USB_TRANSPORT_HIDRAW
+
+
+def _active_hidraw(engine) -> 'HidrawTransport | None':
+    """The open hidraw transport, or None on the libusb path."""
+    transport = getattr(engine, '_hidraw', None)
+    return transport if isinstance(transport, HidrawTransport) else None
+# How long to wait for the hidraw nodes after handing interfaces back to the
+# kernel's HID driver.
+_HIDRAW_NODE_WAIT_S = 2.0
+
+# How long the headset must stay offline before "redirect on disconnect"
+# moves the default sink away from it (#349).
+_OFFLINE_REDIRECT_DELAY_S = 5.0
+
+# How often configure_virtual_sinks may rebuild the libusb context when the
+# kernel lists a headset libusb does not (#325).
+_LIBUSB_REFRESH_MIN_S = 30.0
+
 _DERIVED_TOKENS = {
     'value.enabled': lambda value: 0 if value == 0 else 1,
     'value.at_least_1': lambda value: max(1, value),
+    # A delay chosen in minutes that the firmware takes as big-endian
+    # seconds on two bytes (Arctis 9 inactivity_timer, #331).
+    'value.minutes_as_seconds_hi': lambda value: (value * 60) >> 8 & 0xff,
+    'value.minutes_as_seconds_lo': lambda value: (value * 60) & 0xff,
 }
 
 
@@ -239,9 +277,21 @@ def resolve_mic_autoswitch_target(
 EQ_BAND_MIN = 0
 EQ_BAND_MAX = 40
 EQ_BAND_COUNT = 10
+EQ_BAND_ZERO = 20
 
 
-def sanitise_eq_bands(bands, logger) -> list[int] | None:
+def eq_band_bounds(range_db: int = 10) -> tuple[int, int]:
+    """Slider bounds for a family whose curve reaches ±range_db.
+
+    Most go to ±10 dB, which is the 0-40 scale above. The Elite family takes
+    ±12 (its eqBand gain range, and what GG sends it, #327): same half-decibel
+    steps and the same 20 = 0 dB, so its scale simply runs -4 to 44 and a
+    curve saved on one headset still means the same decibels on another.
+    """
+    return EQ_BAND_ZERO - 2 * range_db, EQ_BAND_ZERO + 2 * range_db
+
+
+def sanitise_eq_bands(bands, logger, range_db: int = 10) -> list[int] | None:
     """Ten in-domain integers, or None when the input cannot be trusted.
 
     The D-Bus surface checked that the payload was a list of ten items and
@@ -256,6 +306,7 @@ def sanitise_eq_bands(bands, logger) -> list[int] | None:
                        EQ_BAND_COUNT, bands)
         return None
 
+    low, high = eq_band_bounds(range_db)
     cleaned: list[int] = []
     clamped = False
     for band in bands:
@@ -265,15 +316,15 @@ def sanitise_eq_bands(bands, logger) -> list[int] | None:
                            band)
             return None
         value = int(round(band))
-        if value < EQ_BAND_MIN or value > EQ_BAND_MAX:
+        if value < low or value > high:
             clamped = True
-            value = max(EQ_BAND_MIN, min(EQ_BAND_MAX, value))
+            value = max(low, min(high, value))
         cleaned.append(value)
 
     if clamped:
         logger.warning(
             "custom EQ: band values outside %d-%d were clamped before reaching "
-            "the headset (got %r)", EQ_BAND_MIN, EQ_BAND_MAX, list(bands),
+            "the headset (got %r)", low, high, list(bands),
         )
     return cleaned
 
@@ -320,6 +371,13 @@ class CoreEngine:
         # the "no endpoint" warning is logged once per connection rather than
         # on every read attempt.
         self._endpointless_interfaces: set[int] = set()
+        # The hidraw nodes in use when the user chose that transport and it
+        # could be opened; None means the libusb path. usb_transport_active
+        # says which one is really talking to the headset, for the log and
+        # the bug report (the setting alone does not: hidraw falls back).
+        self._hidraw: HidrawTransport | None = None
+        self._hidraw_failure: str | None = None
+        self.usb_transport_active: str = 'libusb'
         self._device_lock = threading.RLock()
         self._usb_write_lock = threading.Lock()
         # monotonic() of the last frame send_command() put on the wire, so the
@@ -367,6 +425,9 @@ class CoreEngine:
         # as the profile default while the reply adopts the device's own value.
         self._readback_pending: set[int] = set()
         self._readback_done = threading.Event()
+        # True only between the start readback and device_init: a late reply
+        # must not undo what device_init has just pushed.
+        self._readback_wins_window = False
 
         # Requests sent whose replies carry no opcode (status mappings with
         # `reply_to`), oldest first: the device answers in order, so the next
@@ -415,6 +476,9 @@ class CoreEngine:
         # _schedule_settings_replay().
         self._last_settings_push: float = 0.0
         self._settings_replay_timer: threading.Timer | None = None
+        # Pending "redirect on disconnect" after the headset reported offline;
+        # see on_device_status_changed (#349).
+        self._offline_redirect_timer: threading.Timer | None = None
 
         # Guards for the resume-time USB reset escalation (#238). Reset by
         # prepare_for_sleep() so at most one attempt happens per suspend cycle;
@@ -651,8 +715,14 @@ class CoreEngine:
             # Chat recreate in the watchdog did — so after a replug, Firefox,
             # games and video players silently stopped following the headset.
             try:
-                from arctis_sound_manager.pw_utils import reapply_routing_overrides
+                from arctis_sound_manager.pw_utils import (
+                    reapply_routing_overrides, restore_channel_streams)
                 reapply_routing_overrides()
+                # And the apps that were on a channel without a pin (#343).
+                snapshot = getattr(self, '_channel_streams_before_teardown', None)
+                if snapshot:
+                    self._channel_streams_before_teardown = None
+                    restore_channel_streams(snapshot)
             except Exception as exc:
                 self.logger.warning(
                     "setup_loopbacks: could not reapply routing overrides: %r", exc
@@ -2197,9 +2267,15 @@ class CoreEngine:
             await asyncio.sleep(_LISTEN_IDLE_BACKOFF_S)
             return
 
-        endpoint, max_packet_size = self.guess_interface_endpoint('in', interface_id)
+        hidraw = _active_hidraw(self)
+        if hidraw is not None:
+            # The kernel's HID driver does the reading; an interface it does
+            # not hold (no hidraw node) is as good as one with no endpoint.
+            endpoint, max_packet_size = (interface_id, 64) if hidraw.has(interface_id) else (None, None)
+        else:
+            endpoint, max_packet_size = self.guess_interface_endpoint('in', interface_id)
 
-        if not endpoint:
+        if not endpoint and endpoint != 0:
             # Declared in the YAML but absent on this model: permanent for as
             # long as this device is attached, so back off hard rather than ask
             # again every few milliseconds. Logged once per connection, not per
@@ -2221,7 +2297,10 @@ class CoreEngine:
             # (see the except below), this is what makes a turned dial land in
             # milliseconds instead of every second or two (GameDAC 2 volume /
             # ChatMix responsiveness).
-            read_input: list[int] = list(await asyncio.to_thread(usb_device.read, endpoint, max_packet_size, 1000))
+            if hidraw is not None:
+                read_input = list(await asyncio.to_thread(hidraw.read, interface_id, max_packet_size, 1000))
+            else:
+                read_input = list(await asyncio.to_thread(usb_device.read, endpoint, max_packet_size, 1000))
             self._eio_counts.pop(interface_id, None)  # this interface read fine again
             self._overflow_counts.pop(interface_id, None)
             with self._device_lock:
@@ -2741,9 +2820,12 @@ class CoreEngine:
                     )
 
             if usb_device is None:
-                for device_config in self.device_configurations:
-                    usb_device = self._find_hid_device(device_config.vendor_id, device_config.product_ids)
-                    if usb_device is not None:
+                for attempt in range(2):
+                    for device_config in self.device_configurations:
+                        usb_device = self._find_hid_device(device_config.vendor_id, device_config.product_ids)
+                        if usb_device is not None:
+                            break
+                    if usb_device is not None or attempt or not self._libusb_list_is_stale():
                         break
 
             if not device_config or not usb_device:
@@ -3124,13 +3206,17 @@ class CoreEngine:
         # Ask the headset what it currently has, before pushing anything. The
         # replies land on the listen loop and only fill in settings the user
         # never chose here — see _absorb_settings_readback().
-        replies = self._request_settings_readback()
-        # device_init resolves `settings.*` when it sends them, so give the
-        # replies a moment to land first; past that, defaults go out as they
-        # always did.
-        if replies is not None and not replies.wait(_READBACK_WAIT_S):
-            self.logger.debug("settings readback: a query went unanswered before "
-                              "device_init")
+        self._readback_wins_window = True
+        try:
+            replies = self._request_settings_readback()
+            # device_init resolves `settings.*` when it sends them, so give the
+            # replies a moment to land first; past that, defaults go out as
+            # they always did.
+            if replies is not None and not replies.wait(_READBACK_WAIT_S):
+                self.logger.debug("settings readback: a query went unanswered "
+                                  "before device_init")
+        finally:
+            self._readback_wins_window = False
         failed, attempted = self._send_device_init_sequence(context="init_device")
 
         # Not _apply_stored_eq() directly: in Sonar mode the stored curve must
@@ -3417,18 +3503,17 @@ class CoreEngine:
             for b in seq
             if isinstance(b, str) and b.startswith('settings.')
         }
-        endpoint = self.get_command_endpoint_address()
         for section in self.device_config.settings.keys():
             for config in self.device_config.settings[section]:
                 if config.name in covered:
                     continue
-                if not config.update_sequence:
+                if not config.update_sequence and getattr(config, 'ten_band_eq', None) is None:
                     continue
                 if not self.device_settings.was_chosen_by_user(config.name):
                     continue
                 value = self.device_settings.get(config.name, 0)
                 try:
-                    self.send_command(self._resolve_update_sequence(config, value), endpoint)
+                    self._send_setting(config, value)
                 except Exception as e:  # noqa: BLE001 — one bad setting must not stop the others
                     self.logger.warning(
                         "Could not replay %s=%s after power-on: %r", config.name, value, e)
@@ -3471,7 +3556,8 @@ class CoreEngine:
         if self.device_config is None:
             return False
 
-        bands = sanitise_eq_bands(bands, self.logger)
+        bands = sanitise_eq_bands(bands, self.logger,
+                                  self.device_config.hardware_eq_range_db)
         if bands is None:
             return False
 
@@ -3483,7 +3569,7 @@ class CoreEngine:
             # described band by band and sent over three frames, the last of
             # which commits it. ASM's sliders are 0-40 with 20 = 0 dB, half a
             # decibel per step, which is the -10..+10 dB the hardware takes.
-            from arctis_sound_manager.hardware_eq import ENCODERS, bands_from_gains
+            from arctis_sound_manager.hardware_eq import BAND_LAYOUTS, ENCODERS
 
             encoder = ENCODERS.get(eq_format)
             if encoder is None:
@@ -3496,8 +3582,13 @@ class CoreEngine:
             # (and its USB timeout to 1200 ms) for the Nova 5 and the GameBuds.
             # Sending both back to back risks the curve not landing.
             frame_delay = options.pop('frame_delay_ms', 0) / 1000
-            frames = encoder(bands_from_gains([(b - 20) / 2 for b in bands]),
-                             **options)
+            layout = BAND_LAYOUTS.get(self.device_config.hardware_eq_band_layout)
+            if layout is None:
+                self.logger.error("Unknown hardware EQ band layout %r for %s",
+                                  self.device_config.hardware_eq_band_layout,
+                                  self.device_config.name)
+                return False
+            frames = encoder(layout([(b - 20) / 2 for b in bands]), **options)
             feature_size = self.device_config.hardware_eq_feature_report_size
             for index, frame in enumerate(frames):
                 if index and frame_delay:
@@ -3656,12 +3747,13 @@ class CoreEngine:
     def on_device_status_changed(self, key: str, value: int):
         if self.device_config and self.device_config.online_status and key == self.device_config.online_status.status_variable:
             if self.is_device_online():
+                self._cancel_offline_redirect()
                 self.redirect_to_media_sink()
                 # The headset just came up on its firmware defaults — give it
                 # back what the user chose (#221).
                 self._schedule_settings_replay()
             else:
-                self.redirect_audio_on_disconnect()
+                self._schedule_offline_redirect()
 
         if key == 'eq_band_value' and self.device_status is not None:
             band_index = self.device_status.get('eq_band_index')
@@ -3784,6 +3876,35 @@ class CoreEngine:
         'effect_input.virtual-surround-7.1-hesuvi',
         'effect_input.virtual-surround-7.1-hesuvi-media',
     )
+
+    def _schedule_offline_redirect(self) -> None:
+        """Redirect away from the headset once it has stayed offline a while.
+
+        Straight after a re-init the status can read "offline" for a moment
+        before the first real frame lands, with the headset sitting right
+        there. Redirecting on that moved the default sink to the user's
+        disconnect device for nothing, and on one system that default-sink
+        change was what hung PipeWire for 40 minutes (#349). A headset that
+        is really off is still off a few seconds later.
+        """
+        if self._offline_redirect_timer is not None:
+            return
+
+        def fire():
+            self._offline_redirect_timer = None
+            if self._stopping or self.is_device_online():
+                return
+            self.redirect_audio_on_disconnect()
+
+        timer = threading.Timer(_OFFLINE_REDIRECT_DELAY_S, fire)
+        timer.daemon = True
+        self._offline_redirect_timer = timer
+        timer.start()
+
+    def _cancel_offline_redirect(self) -> None:
+        timer, self._offline_redirect_timer = self._offline_redirect_timer, None
+        if timer is not None:
+            timer.cancel()
 
     def redirect_audio_on_disconnect(self):
         if not self.general_settings.redirect_audio_on_disconnect:
@@ -4176,10 +4297,33 @@ class CoreEngine:
             self.logger.warning(f'Unknown setting: {setting}')
             return
 
+        self._send_setting(config, value)
+
+    def _send_setting(self, config, value: int) -> bool:
+        """Write one setting the way its profile entry says: a plain command
+        built from update_sequence, or a ten-band EQ preset frame."""
+        if (ten_band := getattr(config, 'ten_band_eq', None)) is not None:
+            return self._send_ten_band_preset(config.name, ten_band, value)
         endpoint = self.get_command_endpoint_address()
         seq = self._resolve_update_sequence(config, value)
-        self.logger.info(f'send_command: {setting}={value} → {[hex(b) for b in seq]} on endpoint {endpoint}')
-        self.send_command(seq, endpoint)
+        self.logger.info(f'send_command: {config.name}={value} → {[hex(b) for b in seq]} on endpoint {endpoint}')
+        return self.send_command(seq, endpoint)
+
+    def _send_ten_band_preset(self, name: str, ten_band: dict, value: int) -> bool:
+        """Select an onboard microphone or Bluetooth EQ preset (Nova Elite /
+        Pro Omni). The firmware has no select command for these: GG writes
+        ten_band_eq_mic (0x1D) / ten_band_eq_bt (0x1F) with the preset's slot,
+        name and gains, and so does this."""
+        from arctis_sound_manager.hardware_eq import ONBOARD_PRESETS, encode_ten_band_eq
+
+        preset = next((p for p in ONBOARD_PRESETS[ten_band['presets']] if p.slot == value), None)
+        if preset is None:
+            self.logger.warning('%s: no onboard preset in slot %s', name, value)
+            return False
+        frame = encode_ten_band_eq(int(ten_band['command']), preset,
+                                   int(ten_band.get('report_id', 0x01)))
+        self.logger.info('send_feature_report: %s=%s (%s)', name, value, preset.name)
+        return self.send_feature_report(frame, int(ten_band.get('size', 1036)))
 
     def _resolve_update_sequence(self, config, value: int) -> list[int]:
         result = []
@@ -4243,7 +4387,15 @@ class CoreEngine:
                 # listen thread before write() even returns.
                 if untagged_request is not None:
                     self._untagged_requests_pending.append(untagged_request)
-                if endpoint != 0:
+                hidraw = _active_hidraw(self)
+                if hidraw is not None:
+                    # The kernel picks the interrupt OUT endpoint or the
+                    # control pipe, as the descriptor says.
+                    if self.device_config.command_transport == CommandTransport.CTRL_FEATURE:
+                        hidraw.send_feature(self._command_interface_number(), command_lst)
+                    else:
+                        hidraw.write_output(self._command_interface_number(), command_lst)
+                elif endpoint != 0:
                     self.usb_device.write(endpoint, command_lst)
                 else:
                     bmRequestType = usb.util.build_request_type(
@@ -4309,9 +4461,13 @@ class CoreEngine:
                     if wait > 0:
                         time.sleep(wait)
                 self._last_usb_write_monotonic = time.monotonic()
-                self.usb_device.ctrl_transfer(
-                    bmRequestType, 0x09, (0x03 << 8) | (data[0] & 0xFF),
-                    self._command_interface_number(), data)
+                hidraw = _active_hidraw(self)
+                if hidraw is not None:
+                    hidraw.send_feature(self._command_interface_number(), data)
+                else:
+                    self.usb_device.ctrl_transfer(
+                        bmRequestType, 0x09, (0x03 << 8) | (data[0] & 0xFF),
+                        self._command_interface_number(), data)
         except usb.core.USBError as e:
             self.logger.warning("Error sending feature report 0x%02x: %s",
                                 data[1] if len(data) > 1 else 0, e)
@@ -4328,12 +4484,36 @@ class CoreEngine:
             recipient=usb.util.CTRL_RECIPIENT_INTERFACE)
         try:
             with self._usb_write_lock:
+                hidraw = _active_hidraw(self)
+                if hidraw is not None:
+                    return hidraw.get_feature(
+                        self._command_interface_number(), report_id, size)
                 return list(self.usb_device.ctrl_transfer(
                     bmRequestType, 0x01, (0x03 << 8) | (report_id & 0xFF),
                     self._command_interface_number(), size, timeout=1000))
         except usb.core.USBError as e:
             self.logger.warning("Error reading feature report 0x%02x: %s", report_id, e)
             return None
+
+    def _libusb_list_is_stale(self) -> bool:
+        """When no headset was found but the kernel lists one: open a fresh
+        libusb context and say so, so the caller looks again (#325).
+
+        libusb's device list only follows hotplug events, and a dongle that
+        re-enumerated on resume can be missed from inside a container. At
+        most every 30 s, so a device the kernel lists for another reason
+        cannot make every 3-second rescan rebuild the context.
+        """
+        if not any(sysfs_has_device(c.vendor_id, c.product_ids)
+                   for c in self.device_configurations):
+            return False
+        now = time.monotonic()
+        if now - getattr(self, '_last_libusb_refresh', -_LIBUSB_REFRESH_MIN_S) < _LIBUSB_REFRESH_MIN_S:
+            return False
+        if not refresh_libusb_context(self.logger):
+            return False
+        self._last_libusb_refresh = now
+        return True
 
     def _find_hid_device(self, vendor_id: int, product_ids: list[int]) -> 'TypedDevice | None':
         """Find the first USB device matching vendor_id/product_ids that exposes an HID interface."""
@@ -4510,7 +4690,25 @@ class CoreEngine:
 
         Returns True on success, False on USB permission/access errors so the
         caller can bail out cleanly instead of letting the daemon crash.
+
+        With the hidraw transport chosen in Settings, nothing is detached:
+        the kernel keeps the interfaces and ASM opens their /dev/hidraw*
+        nodes instead (_open_hidraw). If that fails, this falls through to
+        the libusb claim below, so the headset still works.
         """
+        if _wants_hidraw(self):
+            if self._open_hidraw(usb_device, config):
+                self.permission_error = False
+                self._record_usb_transport('hidraw', None)
+                return True
+            self.logger.warning("hidraw transport unavailable for %s — using libusb instead",
+                                config.name)
+            fallback_reason = getattr(self, '_hidraw_failure', None) or 'hidraw could not be opened'
+        else:
+            fallback_reason = None
+        self._close_hidraw()
+        self.usb_transport_active = 'libusb'
+        self._record_usb_transport('libusb', fallback_reason)
         self.logger.info(f"Detaching kernel driver for device: {usb_device.idVendor:04x}:{usb_device.idProduct:04x} ({config.name})")
 
         had_eacces = False
@@ -4572,13 +4770,26 @@ class CoreEngine:
         endpoint = self.get_command_endpoint_address()
         self._readback_pending = set(range(len(self.device_config.settings_readback)))
         self._readback_done.clear()
-        for readback in self.device_config.settings_readback:
+        for index, readback in enumerate(self.device_config.settings_readback):
             try:
                 self.send_command(list(readback.request), endpoint)
             except usb.core.USBError as e:
                 # Not worth a retry: the settings simply stay at their defaults.
                 self.logger.warning("Settings readback %s failed: %r",
                                     bytes(readback.request).hex(' '), e)
+                continue
+            if readback.feature:
+                # The answer is not a frame on the listen loop: fetch it. The
+                # same pause as the hardware EQ's feature readback, for the
+                # firmware to fill the report in.
+                time.sleep(0.2)
+                reply = self.get_feature_report(readback.report_id, readback.size)
+                if reply is not None:
+                    self._absorb_settings_readback(reply)
+                # Answered or not, nothing more will come for this one.
+                self._readback_pending.discard(index)
+        if not self._readback_pending:
+            self._readback_done.set()
         return self._readback_done
 
     def _absorb_settings_readback(self, response: list[int]) -> None:
@@ -4593,6 +4804,12 @@ class CoreEngine:
         a setting exists in the user's settings file it is theirs, and nothing
         the headset reports may overwrite it, or a stale reply would fight
         every change they make.
+
+        The exception is a base station (`settings_readback_wins`): it keeps
+        its settings and has its own controls, so at start (and only then, see
+        init_device) its reply is the current state and wins, as in GG. ASM
+        writes every key to the settings file, so "in the file" never meant
+        "chosen here" on an upgraded install (#359, #331).
         """
         if self.device_config is None or not self.device_config.settings_readback:
             return
@@ -4605,14 +4822,16 @@ class CoreEngine:
             self._readback_pending.discard(index)
             if not self._readback_pending:
                 self._readback_done.set()
+            device_wins = (self._readback_wins_window is True
+                           and getattr(self.device_config, 'settings_readback_wins', False) is True)
             for name, value in readback.values_from(response).items():
-                if self.device_settings.was_chosen_by_user(name):
+                if self.device_settings.was_chosen_by_user(name) and not device_wins:
                     continue
                 if self.device_settings.get(name, None) == value:
                     continue
                 self.logger.info(
-                    "Adopting %s=%s read back from the headset (never set here)",
-                    name, value)
+                    "Adopting %s=%s read back from the %s", name, value,
+                    "base station" if device_wins else "headset (never set here)")
                 self.device_settings.settings[name] = value
 
     def _resolve_raw_response_waiters(self, response: list[int]) -> None:
@@ -4875,6 +5094,98 @@ class CoreEngine:
         timer.daemon = True
         timer.start()
 
+    def _hidraw_interfaces(self, config: DeviceConfiguration) -> set[int]:
+        interfaces = {i for i in self._all_used_interfaces(config) if i >= 0}
+        if config.oled is not None:
+            interfaces.add(config.oled.interface)
+        return interfaces
+
+    def _open_hidraw(self, usb_device: TypedDevice, config: DeviceConfiguration) -> bool:
+        """Open the headset's hidraw nodes instead of claiming it.
+
+        A libusb session before this one (or an older ASM) may have left the
+        kernel driver detached, and without it there is no hidraw node: give
+        each interface back to the kernel first, then wait briefly for the
+        nodes to appear. The command interface is the one that must be there.
+        """
+        self._close_hidraw()
+        self._hidraw_failure = None
+        interfaces = self._hidraw_interfaces(config)
+        for interface in interfaces:
+            try:
+                if not usb_device.is_kernel_driver_active(interface):
+                    usb_device.attach_kernel_driver(interface)
+            except (usb.core.USBError, NotImplementedError) as e:
+                self.logger.debug("hidraw: interface %d not handed back to the kernel: %r",
+                                  interface, e)
+        command = self._command_interface_number()
+        nodes: dict = {}
+        deadline = time.monotonic() + _HIDRAW_NODE_WAIT_S
+        # Wait for the nodes, then for their permissions: the kernel creates a
+        # hidraw node as root 0600 and udev applies the rules' MODE a moment
+        # later, so a node that has just appeared refuses the first open.
+        while True:
+            nodes = find_hidraw_nodes(getattr(usb_device, 'bus', None),
+                                      getattr(usb_device, 'port_numbers', None), interfaces)
+            error: OSError | None = None
+            if command in nodes:
+                try:
+                    self._hidraw = HidrawTransport(nodes)
+                    break
+                except OSError as e:
+                    error = e
+                    if e.errno not in (errno.EACCES, errno.EPERM, errno.ENOENT):
+                        break
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.1)
+        if command not in nodes:
+            self._hidraw_failure = f"no hidraw node for command interface {command}"
+            self.logger.warning("hidraw: no node for command interface %d (found: %s)",
+                                command, ", ".join(f"{i}→{n}" for i, n in sorted(nodes.items())) or "none")
+            return False
+        if self._hidraw is None:
+            self._hidraw_failure = f"cannot open {error.filename}: {error.strerror}"
+            self.logger.warning(
+                "hidraw: cannot open %s (%s). The udev rules may predate hidraw "
+                "support: run `asm-cli udev write-rules --force --reload` as root, then replug.",
+                error.filename, error)
+            return False
+        self.usb_transport_active = 'hidraw'
+        self.logger.info("Using the hidraw transport for %s: %s", config.name, self._hidraw.describe())
+        return True
+
+    def _record_usb_transport(self, active: str, fallback_reason: str | None) -> None:
+        """Write which transport is talking to the headset, for the bug report.
+
+        The setting says what the user asked for; this says what happened,
+        including a hidraw request that fell back to libusb and why. Best
+        effort: a report missing it is still a report.
+        """
+        hidraw = _active_hidraw(self)
+        state = {
+            'chosen': 'hidraw' if _wants_hidraw(self) else 'libusb',
+            'active': active,
+            'fallback_reason': fallback_reason,
+            'device': self.device_config.name if self.device_config else None,
+            'nodes': ({str(i): str(n) for i, n in sorted(hidraw.nodes.items())}
+                      if hidraw is not None else {}),
+            'numbered_reports': ({str(i): hidraw.uses_report_ids(i) for i in sorted(hidraw.nodes)}
+                                 if hidraw is not None else {}),
+            'time': time.time(),
+        }
+        try:
+            USB_TRANSPORT_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            USB_TRANSPORT_STATE_FILE.write_text(json.dumps(state, indent=1))
+        except OSError as e:
+            self.logger.debug("Could not record the USB transport state: %r", e)
+
+    def _close_hidraw(self) -> None:
+        transport = _active_hidraw(self)
+        self._hidraw = None
+        if transport is not None:
+            transport.close()
+
     def release_all_interfaces(self, usb_device: TypedDevice, config: DeviceConfiguration) -> None:
         """Release every interface :meth:`kernel_detach` claimed.
 
@@ -4891,7 +5202,14 @@ class CoreEngine:
         claimed raises, and that is not an error worth propagating on a
         teardown path — the goal is to give back whatever we hold before the
         kernel driver is re-attached.
+
+        With hidraw nothing was claimed: closing the nodes is the release.
         """
+        if _active_hidraw(self) is not None:
+            self._close_hidraw()
+            return
+        if getattr(self, 'usb_transport_active', 'libusb') == 'hidraw':
+            return
         for interface in self._all_used_interfaces(config):
             try:
                 usb.util.release_interface(usb_device, interface)
@@ -4901,6 +5219,9 @@ class CoreEngine:
 
     def kernel_attach(self, usb_device: TypedDevice, config: DeviceConfiguration) -> bool:
         """Re-attach the kernel driver. Returns False on USB error (best effort)."""
+        if getattr(self, 'usb_transport_active', 'libusb') == 'hidraw':
+            # The kernel driver was never detached.
+            return True
         self.logger.info(f"Re-attaching kernel driver for device: {usb_device.idProduct:04x}:{usb_device.idVendor:04x} ({config.name})")
 
         ok = True
@@ -5420,6 +5741,17 @@ class CoreEngine:
                     self.kernel_attach(self.usb_device, self.device_config)
             except usb.core.USBError as e:
                 self.logger.warning(f"Error re-attaching kernel driver: {e}")
+
+        # Which app was on which channel, while the channels still exist: once
+        # the loopbacks stop, every stream falls back to another output and
+        # only the pinned ones used to come back on reconnect (#343).
+        try:
+            from arctis_sound_manager.pw_utils import snapshot_channel_streams
+            snapshot = snapshot_channel_streams()
+            if snapshot:
+                self._channel_streams_before_teardown = snapshot
+        except Exception as e:
+            self.logger.warning(f"Error remembering channel streams: {e}")
 
         try:
             self.redirect_audio_on_disconnect()

@@ -292,6 +292,14 @@ class GeneralSettings(JsonSerializable):
     # here because their headset was asleep during a scan.
     generic_device_mode: bool = False
 
+    # How ASM talks to the headset over USB. 1 = hidraw (the default): leave
+    # the interfaces to the kernel's HID driver and use /dev/hidraw*
+    # (core.CoreEngine._open_hidraw), falling back to libusb on its own when
+    # the nodes cannot be opened. 0 = libusb: detach the driver and claim the
+    # interfaces, as ASM did up to 1.6.6 — kept for any headset hidraw does
+    # not suit.
+    usb_transport: int = 1
+
     # Which sink the channels come out of in generic mode. Replaces the
     # vendor-id discovery that finds an Arctis' own ALSA nodes — there is no
     # vendor id to look for, so the user names the device instead.
@@ -527,6 +535,7 @@ class GeneralSettings(JsonSerializable):
         ConfigSetting('redirect_audio_on_disconnect_device', SettingType.SELECT, None, options_source='pulse_audio_devices', options_mapping={ 'value': 'id', 'label': 'description' }),
         ConfigSetting('external_output_device', SettingType.SELECT, None, options_source='external_audio_devices', options_mapping={ 'value': 'id', 'label': 'description' }),
         ConfigSetting('preferred_device', SettingType.SELECT, None, options_source='connected_arctis_devices', options_mapping={ 'value': 'id', 'label': 'name' }),
+        ConfigSetting('usb_transport', SettingType.BUTTON_GROUP, 1, values_mapping={1: 'usb_transport_hidraw', 0: 'usb_transport_libusb'}),
         ConfigSetting('generic_device_mode', SettingType.TOGGLE, False, values={ 'on': True, 'off': False, 'off_label': 'off', 'on_label': 'on' }),
         ConfigSetting('generic_output_device', SettingType.SELECT, None, options_source='external_audio_devices', options_mapping={ 'value': 'id', 'label': 'description' }),
         ConfigSetting('generic_input_device', SettingType.SELECT, None, options_source='pulse_audio_sources', options_mapping={ 'value': 'id', 'label': 'description' }),

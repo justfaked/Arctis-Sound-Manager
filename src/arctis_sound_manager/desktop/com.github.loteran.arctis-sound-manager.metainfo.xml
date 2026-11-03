@@ -56,6 +56,36 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.7.1" date="2026-11-01">
+      <description>
+        <p>Spatial Audio looks and works like Sonar's. The panel now shows the listener from above with the seven virtual speakers around the head: click one to raise or lower it (−12 to +6 dB) — the centre for dialogue, the rear speakers for footsteps. Immersion and Distance sit next to it under "Tuning". Headphones / Speakers switch. Headphones is the virtual surround you know. Speakers skips the headphone render and folds the 7.1 to stereo with your speaker levels, for stereo speakers. A 5.1/7.1 output still gets the channels as they are, now with your speaker levels applied. Spatial settings per preset. The ⋮ menu saves Immersion, Distance and the speaker levels for the active preset or for all presets; a preset without its own uses the common ones. Switching presets — from the EQ page, the tray or the automatic game preset — brings its settings along. The on/off switch stays the same for every preset.</p>
+      </description>
+    </release>
+    <release version="1.7.0" date="2026-10-28">
+      <description>
+        <p>ASM now talks to the headset through hidraw instead of libusb (Settings → Generic Device → Headset access). ASM used to take the headset's control interfaces away from the kernel and drive them itself through libusb. Now the kernel keeps them and ASM reads and writes HID reports through /dev/hidraw*: no detaching, reads sized by the kernel from the headset's own descriptor, and the system keeps showing the battery while ASM runs. If the hidraw nodes cannot be opened, ASM falls back to libusb on its own, and you can choose libusb in Settings if hidraw does not suit your headset. The bug report says which one you chose, which one is really in use, and why it fell back if it did. The udev rules now cover the hidraw nodes, and the packages re-apply them on install. "Redirect on disconnect" no longer fires when the headset only looks offline for a moment (#349). Right after ASM re-initialises the headset, its status can read offline before the first real report arrives; ASM moved the default output to your disconnect device on that, with the headset still on. It now waits until the headset has stayed offline for 5 seconds. On one system that needless default-output change was what set off a long PipeWire hang. Thanks @ziggityzack.</p>
+      </description>
+    </release>
+    <release version="1.6.6" date="2026-10-28">
+      <description>
+        <p>Quitting ASM no longer crashes when PipeWire stops answering (#349). The tray's last default-sink switch could time out and the error killed it before it finished; a unit that ignored the stop was then sent a second polite signal instead of being killed. Both are handled now. Thanks @ziggityzack for the reproduction and the analysis. ASM no longer re-sends the same move to an idle native app every 5 seconds (#349). An app pinned to an output but not playing has no link, so ASM never saw it as already there and asked PipeWire again and again for the whole session. It now asks once per stream. Arctis Pro (2019, wired) gets a profile of its own, audio only. It was handled as a wireless Arctis 7, whose commands it does not have, so its battery, ChatMix and headset settings never worked. Like the Arctis 5 (2018), it now gets the audio features (channels, Sonar EQ, spatial audio) and no controls that would do nothing.</p>
+      </description>
+    </release>
+    <release version="1.6.5" date="2026-10-27">
+      <description>
+        <p>Arctis GameBuds: choose the audio source, the 2.4 GHz dongle or Bluetooth, the switch GG makes when its EQ panel changes tab. On Bluetooth, this computer's audio through the dongle no longer reaches the earbuds. Not yet tried on real GameBuds. Arctis 7 / 7 2019 and Arctis 1 Wireless / 1X / 7X / 7P: microphone volume, as GG offers it (0-100). Not yet tried on hardware: if you own one, please tell us on #331 whether it works. Arctis Nova Pro Wired: line out, stream mix and screen dimming. Line out to speakers or streaming, the main / aux / mic stream mix, and when the GameDAC's screen dims, as GG offers them. Not yet tried on a real one: if you own one, please tell us on #331 whether each control works.</p>
+      </description>
+    </release>
+    <release version="1.6.4" date="2026-10-23">
+      <description>
+        <p>Nix: the package builds again on recent nixpkgs (#344). nixpkgs switched Python packages to structured attributes in October, which passed each grouped wrapper option as a single argument that makeWrapper rejected. Each argument now stands on its own. Contributed by @jgopel. Apps go back to their channel when the dongle or headset comes back (#343). When the channels disappear (dongle unplugged, headset off), every app falls back to another output, and on reconnect only the apps you had pinned to a channel came back; a game left on Game stayed on the monitor speakers. ASM now remembers which channel each app was on and puts it back, without touching an app you have since moved to another ASM channel. Thanks @Fabi0699. Nova Pro Omni: the base station's own screen flashed over ASM's custom display (#330). ASM drew all 64 rows, over the 12-row status strip at the top that the base keeps for itself; each time its charging indicator changed, the Omni redrew its whole screen for up to a second. ASM now draws 128x52 below that strip, as GG does on this family (the Nova Elite too). Thanks @FrDrebin for tracking it down to the charging battery.</p>
+      </description>
+    </release>
+    <release version="1.6.3" date="2026-10-18">
+      <description>
+        <p>The headset's own settings are on the Headset page. Sidetone, mic volume, volume limiter, sleep timer, ANC and the rest of what your model supports moved out of Settings, where they sat among the app's options, onto the Headset page: one card per group, next to the live status, shown as tiles. Settings keeps ASM's own options, in cards too, and neither page scrolls sideways any more. The Sonar tabs are joined to the panel they control, and the Micro tab gets the input picker the other tabs already had. Contributed by @Denkiyaa (#333). Arctis Nova Pro Wireless: ASM starts from what the base station already has. Line out, the stream mix, mic volume, sidetone, gain, Bluetooth, the mute-LED brightness, the sleep timer and the wireless mode are read from the base station before ASM sends anything, so a setting you never changed in ASM keeps the value it had (set in GG or on the DAC) instead of being reset to ASM's default. Also new: the base station's home screen view (detailed or simple). Confirmed on hardware with asm-cli tools probe. Windows owners can record what SteelSeries GG sends to their headset (#337). scripts/reverse-engineering/capture-gg-windows.ps1 finds the SteelSeries device plugged in and walks through that model's own settings in GG, one at a time, while USBPcap records; the result shows ASM exactly what each setting expects on that model. See #337 for the steps.</p>
+      </description>
+    </release>
     <release version="1.6.2" date="2026-10-14">
       <description>
         <p>asm-cli tools probe. Asks the headset for its state with read-only queries — the ones SteelSeries' specification lists for that model, nothing that changes a setting — and saves the raw replies to ~/asm-probe.json. One file from an owner is enough to check how a model reports its settings, instead of one question per setting in an issue. Custom EQ and the base station settings on the Arctis Nova Pro Omni. The Omni's base station runs the same firmware family as the Elite and takes the same commands, so it now gets what the Elite already had: the Equalizer page's *Switch to Custom EQ*, the on-ear microphone sidetone, the line out (speaker or stream, with the stream mix volumes), and the screen's screensaver, its timeout and the home screen view and options. Written from SteelSeries' specification and not yet confirmed on a real Omni — Omni owners, please try it and report on #330. Arctis 7: sound cut out while the log filled with "USB error: Overflow" (#317). The dongle can get stuck sending status frames larger than its USB endpoint allows, on every read, for hours; the sound came back only once ASM was quit. ASM now resets the dongle once when this lasts a few seconds, the way it already recovers a headset whose commands all fail, and logs the error every hundred reads instead of twice a second. Thanks @kevinhu12345 for the logs.</p>
@@ -174,36 +204,6 @@
     <release version="1.4.17" date="2026-09-02">
       <description>
         <p>In-app update check lagged AUR helpers on Arch. The checker trusted. In-app update check lagged AUR helpers on Arch. The checker trusted.</p>
-      </description>
-    </release>
-    <release version="1.4.16" date="2026-09-02">
-      <description>
-        <p>Audio cuts out after a few seconds of silence on Game, Chat, and Aux.</p>
-      </description>
-    </release>
-    <release version="1.4.15" date="2026-09-02">
-      <description>
-        <p>Steam Game Recording captured no game audio (issue #225). The router. Applications changed channel on their own after any EQ or profile change. The Linux test matrix never reached the install step. Every job on every.</p>
-      </description>
-    </release>
-    <release version="1.4.14" date="2026-09-02">
-      <description>
-        <p>Audible pop/click on track change with Spatial Audio on Media. The. deps-checker false failures in containers. The HOST/CONTAINER scope. 3 new Sonar presets from SteelSeries GG 118.0.0.</p>
-      </description>
-    </release>
-    <release version="1.4.13" date="2026-08-30">
-      <description>
-        <p>A headset that powers off and on gets its settings back. Sidetone, mic. **The Arctis 7 ChatMix dial no longer freezes at the position it had when the. The Arctis 7 2019 ChatMix dial reported the wrong volume.</p>
-      </description>
-    </release>
-    <release version="1.4.12" date="2026-08-30">
-      <description>
-        <p>The first launch no longer looks like a freeze. Two people described the same first contact with ASM, five weeks apart and on different distributions: the window comes up and nothing responds. Nothing had crashed — a dialog was waiting for them behind the main window. Every startup dialog is created without a parent, because the main window may not exist yet when the first one is due, and an unparented dialog is exactly what focus-stealing prevention pushes to the back. They were also scheduled to collide: a modal runs its own event loop, so the remaining timers keep firing while one is open, and two of them were due at the same moment. They now open one at a time, in the order they come due, and each asks for the foreground. (#17). "Copy cmd" copies. In the system dependencies window it appeared to do nothing at all. Under Wayland the clipboard belongs to the focused window, and a compositor silently drops the request from a window that does not have keyboard focus — which this one did not, being one of the dialogs opening behind the main window. It now takes the foreground first, and says "Copied!" on the button, because there was no way to tell a copy that worked from one that was refused. On a container install, the udev rules are looked for on the host. A distrobox container has its own /etc, and udev only ever reads the host's. The install scripts put the rules there, from the host, which is correct — but ASM looked inside the container, found nothing, and reported them missing on an install that was fine. Its offer to fix that would have written them where nothing reads them. Reported on Bazzite, alongside a pkexec that is missing for the same reason: installing polkit in the container would not help, since it cannot elevate on the host, so ASM now says to run those lines from a host terminal instead.</p>
-      </description>
-    </release>
-    <release version="1.4.11" date="2026-08-26">
-      <description>
-        <p>Headsets that 1.4.10 stopped detecting are detected again. 1.4.10 added a step that works out a headset's control interface from the HID usage page it declares, and it was too eager in three ways, each enough on its own: it moved a device on a single vendor page seen anywhere, it read an unreadable descriptor as "not the control channel" rather than "no idea", and — the one that did the damage — it moved the address commands were written to without also claiming that interface, so every command hit an interface the kernel still held and failed silently, once every ten log lines. An Arctis 7+ lost its battery, its status and its automatic output switching; a set of GameBuds lost battery and online status. A device is now moved only on proof, read from the hardware's own report descriptor, that the interface its profile names cannot be the control channel — and the interface it moves to is always the interface it claims. A missing or wrong usage page can no longer misroute a headset that works. (#216, #217). The usage pages themselves, which were read from the wrong field of the specification. SteelSeries write two different declarations — (usage-page …) for the interface commands go to, (sync-interface …) for the interface a device pushes events on — and 1.4.10 took the second and wrote it in as the first. Thirteen profiles ended up carrying the same wrong value. The field is removed everywhere sync-interface was its only source, and kept only where the command interface's page is independently attested: the Arctis 7+, the GameBuds and the Nova 7P. (#216, #217). Bug reports and the USB diagnostic now say which interface is the control channel, and where audio is going. Each HID interface lists its class and the usage page it declares — the one thing no report could show before, and the whole question #216 and #217 turned on — and the diagnostic records the default sink and the sink every playback stream sits on, so "ASM is holding my audio" and "the default was left somewhere dead" can be told apart.</p>
       </description>
     </release>
   </releases>

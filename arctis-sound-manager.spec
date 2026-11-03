@@ -1,5 +1,5 @@
 Name:           arctis-sound-manager
-Version:        1.6.2
+Version:        1.7.1
 Release:        1%{?dist}
 Summary:        Linux GUI for SteelSeries Arctis headsets
 
@@ -79,17 +79,18 @@ Requires:       ladspa-swh-plugins
 #   pipewire-gstreamer   — pipewiresrc, the portal's screen stream
 #   gstreamer1-plugins-base — appsrc, audioconvert/audioresample, opusenc
 #   gstreamer1-plugins-good — pulsesrc (channel audio), matroskamux (the .mkv)
+#   gstreamer1-plugins-bad-free — h264parse, after every encoder (#334)
 #   gstreamer1-plugins-ugly-free — x264enc, the software encoder fallback
 #   ffmpeg-free          — poster frames, track levels, export
 Recommends:     python3-gobject
 Recommends:     pipewire-gstreamer
 Recommends:     gstreamer1-plugins-base
 Recommends:     gstreamer1-plugins-good
+Recommends:     gstreamer1-plugins-bad-free
 Recommends:     gstreamer1-plugins-ugly-free
 Recommends:     ffmpeg-free
-# Hardware H.264 encoders are a performance choice on top of that — the
-# capture probes for them and falls back to x264enc.
-Suggests:       gstreamer1-plugins-bad-free
+# Hardware H.264 encoders (va, in plugins-bad-free above) are a performance
+# choice on top of that — the capture probes for them and falls back to x264enc.
 %if ! %{bundle_dbus_next}
 Requires:       python3-dbus-next
 %endif
@@ -208,6 +209,8 @@ udevadm control --reload-rules || :
 # lets hid-generic claim interface 4 back. The headset then reads as absent
 # until it is physically replugged, after every single upgrade.
 udevadm trigger --action=add --subsystem-match=usb --attr-match=idVendor=1038 || :
+# And the hidraw nodes the hidraw transport opens: their mode comes from the same rules.
+udevadm trigger --action=add --subsystem-match=hidraw || :
 
 # On upgrade ($1 >= 2), restart the user services: dnf replaced the files, but
 # the running asm-daemon still holds the previous version in memory.

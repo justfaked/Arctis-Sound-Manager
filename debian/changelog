@@ -1,3 +1,303 @@
+arctis-sound-manager (1.7.1-1) noble; urgency=medium
+
+  * Spatial Audio looks and works like Sonar's. The panel now shows the
+    listener from above with the seven virtual speakers around the head:
+    click one to raise or lower it (−12 to +6 dB) — the centre for dialogue,
+    the rear speakers for footsteps. Immersion and Distance sit next to it
+    under "Tuning".
+  * Headphones / Speakers switch. Headphones is the virtual surround you
+    know. Speakers skips the headphone render and folds the 7.1 to stereo
+    with your speaker levels, for stereo speakers. A 5.1/7.1 output still
+    gets the channels as they are, now with your speaker levels applied.
+  * Spatial settings per preset. The ⋮ menu saves Immersion, Distance and
+    the speaker levels for the active preset or for all presets; a preset
+    without its own uses the common ones. Switching presets — from the EQ
+    page, the tray or the automatic game preset — brings its settings along.
+    The on/off switch stays the same for every preset.
+  * Moving a Spatial slider no longer cuts the sound. Immersion, Distance
+    and the speaker levels are set on the running audio chain instead of
+    restarting it. Only taking Distance to or from 0 still restarts it.
+  * Arctis 9: ChatMix was read backwards (#352, #331). A centred dial showed
+    0 % on both channels and any turn sent one side to 100 %.
+  * Nova Pro Wireless, Nova Pro Omni, Nova Elite: settings changed on the
+    base station or in GG are no longer overwritten at start (#359, #331).
+    ASM now takes the base's own values at start instead of replaying its
+    settings file over them.
+  * The Output device you picked is kept when it disappears for a while
+    (#356). A monitor going to sleep made ASM save the fallback as your
+    choice; the channel now goes back to your device when it returns. Thanks
+    @zaxen.
+  * With Passthrough on, the Output node is named like the active one (#357)
+    instead of "Sonar EQ (bypass)".
+  * The bug report names the USB node even when it cannot be read.
+
+ -- loteran <axel.valadon@gmail.com>  Sun, 01 Nov 2026 00:00:00 +0000
+
+arctis-sound-manager (1.7.0-1) noble; urgency=medium
+
+  * ASM now talks to the headset through hidraw instead of libusb (Settings
+    → Generic Device → Headset access). ASM used to take the headset's
+    control interfaces away from the kernel and drive them itself through
+    libusb. Now the kernel keeps them and ASM reads and writes HID reports
+    through /dev/hidraw*: no detaching, reads sized by the kernel from the
+    headset's own descriptor, and the system keeps showing the battery while
+    ASM runs. If the hidraw nodes cannot be opened, ASM falls back to libusb
+    on its own, and you can choose libusb in Settings if hidraw does not
+    suit your headset. The bug report says which one you chose, which one is
+    really in use, and why it fell back if it did. The udev rules now cover
+    the hidraw nodes, and the packages re-apply them on install.
+  * "Redirect on disconnect" no longer fires when the headset only looks
+    offline for a moment (#349). Right after ASM re-initialises the headset,
+    its status can read offline before the first real report arrives; ASM
+    moved the default output to your disconnect device on that, with the
+    headset still on. It now waits until the headset has stayed offline for
+    5 seconds. On one system that needless default-output change was what
+    set off a long PipeWire hang. Thanks @ziggityzack.
+
+ -- loteran <axel.valadon@gmail.com>  Wed, 28 Oct 2026 00:00:00 +0000
+
+arctis-sound-manager (1.6.6-1) noble; urgency=medium
+
+  * Quitting ASM no longer crashes when PipeWire stops answering (#349). The
+    tray's last default-sink switch could time out and the error killed it
+    before it finished; a unit that ignored the stop was then sent a second
+    polite signal instead of being killed. Both are handled now. Thanks
+    @ziggityzack for the reproduction and the analysis.
+  * ASM no longer re-sends the same move to an idle native app every 5
+    seconds (#349). An app pinned to an output but not playing has no link,
+    so ASM never saw it as already there and asked PipeWire again and again
+    for the whole session. It now asks once per stream.
+  * Arctis Pro (2019, wired) gets a profile of its own, audio only. It was
+    handled as a wireless Arctis 7, whose commands it does not have, so its
+    battery, ChatMix and headset settings never worked. Like the Arctis 5
+    (2018), it now gets the audio features (channels, Sonar EQ, spatial
+    audio) and no controls that would do nothing.
+  * Nova 7 Gen 2 / 7P Gen 2: the start-up sequence no longer loses commands
+    after saving. After a save to the headset's memory, its firmware ignores
+    every command for 1.5 seconds, and ASM sent the next ones straight away.
+    It now waits, as GG does.
+  * Arctis Nova 5 / 5X: the on-device EQ is no longer stuck at -10 dB
+    (#347). This headset encodes each band's gain its own way, 2 × (10 + dB)
+    with 20 for 0 dB, and ASM sent the signed form the other headsets use.
+    In Sonar mode, where ASM flattens the headset's EQ so only Sonar's curve
+    applies, every band went to -10 dB; in Custom mode the curve came out
+    shifted. Thanks @gouwschristo, whose read-back of the stored curve
+    showed it.
+
+ -- loteran <axel.valadon@gmail.com>  Wed, 28 Oct 2026 00:00:00 +0000
+
+arctis-sound-manager (1.6.5-1) noble; urgency=medium
+
+  * Arctis GameBuds: choose the audio source, the 2.4 GHz dongle or
+    Bluetooth, the switch GG makes when its EQ panel changes tab. On
+    Bluetooth, this computer's audio through the dongle no longer reaches
+    the earbuds. Not yet tried on real GameBuds.
+  * Arctis 7 / 7 2019 and Arctis 1 Wireless / 1X / 7X / 7P: microphone
+    volume, as GG offers it (0-100). Not yet tried on hardware: if you own
+    one, please tell us on #331 whether it works.
+  * Arctis Nova Pro Wired: line out, stream mix and screen dimming. Line out
+    to speakers or streaming, the main / aux / mic stream mix, and when the
+    GameDAC's screen dims, as GG offers them. Not yet tried on a real one:
+    if you own one, please tell us on #331 whether each control works.
+  * Arctis Pro Wireless: the settings GG offers for it. Volume limiter, the
+    muted microphone's LED, the screensaver and its delay, Bluetooth at
+    power-up and game mute during a Bluetooth call, each with GG's own
+    values. Not yet tried on a real one: if you own one, please tell us on
+    #331 whether each control works.
+  * Arctis Pro GameDAC: the settings GG offers for it. DAC gain, line out
+    (speakers or streaming) with its four stream mix levels (game, chat,
+    aux, mic), and the screen brightness, each with GG's own values. Not yet
+    tried on a real GameDAC: if you own one, please tell us on #331 whether
+    each control does what it says.
+  * Arctis Pro GameDAC: sidetone has GG's four levels (off, low, medium,
+    high) instead of a 0-10 slider whose upper levels the DAC has no use
+    for.
+  * Nova Elite and Nova Pro Omni: ASM reads the base station's settings
+    before changing any (#331). Every start used to push ASM's defaults over
+    what the base already had: sidetone, microphone volume, noise
+    cancelling, auto-off, line out and stream mix, screen saver and home
+    screen, Bluetooth preferences. A setting you never changed in ASM now
+    keeps the value the base holds, set in GG on a dual-boot or on the base
+    itself. Thanks @FrDrebin and @PointyKite, whose probes gave the layout.
+  * The headset is found again after a resume, without restarting ASM
+    (#325). On SteamOS the dongle came back after sleep (lsusb listed it)
+    but ASM kept saying "no device detected" until its service was
+    restarted: the USB library only updates its device list from hotplug
+    events, and that one never reached the container. When the system lists
+    the headset and ASM does not see it, ASM now opens the USB library
+    afresh and looks again. Thanks @rasmus91 for the logs that pinned it
+    down.
+  * Nova Elite: the microphone and Bluetooth EQ presets now apply; Nova Pro
+    Omni gets them too. ASM sent them with commands that do not exist on
+    this family, so picking one changed nothing. They now go out as GG sends
+    them, with GG's own preset curves (Bass Boost from GG's interface: its
+    database holds a copy of Smiley under that name, and an Elite base reads
+    back the interface's curve); the Omni also gets its Walkie Talkie
+    microphone preset. The Elite's wireless mode and base volume controls
+    are gone: the base has no command to change either, and GG does not
+    offer them. Both are still shown.
+  * Arctis 9 Wireless: battery, ChatMix and on/off are read again, and
+    "Shutdown after" means minutes (#331). The headset's status reply does
+    not start with the command that asked for it, so ASM never recognised
+    it. And the shutdown delay went out as seconds: "90 minutes" switched
+    the headset off after 90 seconds. Thanks @globeFrEak for the probe that
+    showed both.
+  * The sidebar fits short windows instead of overlapping. Its seven buttons
+    and the logo need about 990px; in a shorter window the fixed-height
+    buttons ran into each other and the ASM logo was cut off. The buttons
+    and their icons now shrink with the window until the column fits, and
+    stay full size when there is room.
+
+ -- loteran <axel.valadon@gmail.com>  Tue, 27 Oct 2026 00:00:00 +0000
+
+arctis-sound-manager (1.6.4-1) noble; urgency=medium
+
+  * Nix: the package builds again on recent nixpkgs (#344). nixpkgs switched
+    Python packages to structured attributes in October, which passed each
+    grouped wrapper option as a single argument that makeWrapper rejected.
+    Each argument now stands on its own. Contributed by @jgopel.
+  * Apps go back to their channel when the dongle or headset comes back
+    (#343). When the channels disappear (dongle unplugged, headset off),
+    every app falls back to another output, and on reconnect only the apps
+    you had pinned to a channel came back; a game left on Game stayed on the
+    monitor speakers. ASM now remembers which channel each app was on and
+    puts it back, without touching an app you have since moved to another
+    ASM channel. Thanks @Fabi0699.
+  * Nova Pro Omni: the base station's own screen flashed over ASM's custom
+    display (#330). ASM drew all 64 rows, over the 12-row status strip at
+    the top that the base keeps for itself; each time its charging indicator
+    changed, the Omni redrew its whole screen for up to a second. ASM now
+    draws 128x52 below that strip, as GG does on this family (the Nova Elite
+    too). Thanks @FrDrebin for tracking it down to the charging battery.
+  * Nova Pro Wireless: starting ASM no longer flattens the base station's
+    Custom EQ. Every start sent a three-band EQ write left over from an old
+    capture, which set bands 4 to 10 of the Custom slot to -10 dB, over any
+    curve set there in GG or on the base station. It is gone; ASM writes all
+    ten bands itself when the EQ mode is Custom.
+  * First-run setup ran again at every login, restarting PipeWire (#340).
+    The autostart entry's check for ~/.config/arctis_manager/.setup_done was
+    written so that systemd's autostart generator passed $HOME to the shell
+    with a backslash in front, so the shell looked for a file literally
+    named $HOME/..., never found it, and ran asm-setup each time. Its
+    PipeWire restart could leave the screen-sharing portal unable to start a
+    share. The entry now passes desktop-file-validate and finds the marker.
+    Thanks @J-Norberto for the thorough report.
+  * Only one output of a multi-output USB card could be picked (#339).
+    WirePlumber names every output of a USB card "USB Audio", so the device
+    pickers (redirect on disconnect, Output channel) listed only the first
+    one, and choosing it could send audio to an output nobody listens to
+    (S/PDIF instead of the speakers). Outputs sharing a name are now listed
+    separately; if you had picked such a card, pick the output again in
+    Settings.
+  * A preset that failed to apply could be remembered as the game's choice
+    (#338). When a game's automatic preset did not go through, the preset
+    still active looked like one picked by hand and was saved for that game,
+    so it came back at every launch. A failed apply is no longer remembered.
+  * Arctis Nova 5: ASM starts from what the headset already has. Mic volume,
+    sidetone, volume limiter, the sleep timer and the muted-mic LED
+    brightness are read from the headset before ASM sends anything, so a
+    setting you never changed in ASM keeps its value (set in GG, for
+    instance) instead of being reset to ASM's default. Confirmed on hardware
+    with asm-cli tools probe (#331), thanks @Fabi0699.
+  * Nova Elite and Nova Pro Omni: the Custom EQ uses GG's own band layout
+    (#327). The lowest and highest sliders were peaks at 31 Hz and 16 kHz,
+    which you can barely hear on music, so the Custom EQ seemed to do little
+    or nothing on exactly those two. GG makes them a low shelf at 32 Hz and
+    a high shelf at 16 kHz (read off the frames it sends an Omni), and ASM
+    now does the same, with GG's 32/64 Hz and Q. Thanks @PointyKite and
+    @ninjapinja2 for testing.
+  * Nova Elite and Nova Pro Omni: the Custom EQ sliders go to ±12 dB, the
+    range of their on-device equaliser and what GG uses, instead of ASM's
+    ±10. Other headsets keep ±10, and a curve saved on one headset keeps the
+    same decibels on another.
+  * A notification tells you when a preset is remembered for a game (#338).
+    Picking a preset by hand while a game runs saves it for that game; this
+    used to happen silently, so the game then kept "its" preset with no
+    visible reason. The tray menu → "Preset for <game>" → "Automatic" undoes
+    it.
+  * asm-cli tools probe reads EQ bands right. A band is 6 bytes in a
+    headset's reply, but the probe counted the 11 of GG's internal form, so
+    every field after the bands (mic volume, sidetone…) was read from the
+    wrong place or left out on the Nova 5, Nova 3 Wireless, GameBuds, Nova
+    Elite and Nova Pro Omni. Bands now print as frequency, filter, gain and
+    Q (#331).
+  * 3 new Sonar presets from SteelSeries GG 122: Ace Combat 8: Wings of
+    Theve, Control Resonant and Silent Hill: Townfall.
+
+ -- loteran <axel.valadon@gmail.com>  Fri, 23 Oct 2026 00:00:00 +0000
+
+arctis-sound-manager (1.6.3-1) noble; urgency=medium
+
+  * The headset's own settings are on the Headset page. Sidetone, mic
+    volume, volume limiter, sleep timer, ANC and the rest of what your model
+    supports moved out of Settings, where they sat among the app's options,
+    onto the Headset page: one card per group, next to the live status,
+    shown as tiles. Settings keeps ASM's own options, in cards too, and
+    neither page scrolls sideways any more. The Sonar tabs are joined to the
+    panel they control, and the Micro tab gets the input picker the other
+    tabs already had. Contributed by @Denkiyaa (#333).
+  * Arctis Nova Pro Wireless: ASM starts from what the base station already
+    has. Line out, the stream mix, mic volume, sidetone, gain, Bluetooth,
+    the mute-LED brightness, the sleep timer and the wireless mode are read
+    from the base station before ASM sends anything, so a setting you never
+    changed in ASM keeps the value it had (set in GG or on the DAC) instead
+    of being reset to ASM's default. Also new: the base station's home
+    screen view (detailed or simple). Confirmed on hardware with asm-cli
+    tools probe.
+  * Windows owners can record what SteelSeries GG sends to their headset
+    (#337). scripts/reverse-engineering/capture-gg-windows.ps1 finds the
+    SteelSeries device plugged in and walks through that model's own
+    settings in GG, one at a time, while USBPcap records; the result shows
+    ASM exactly what each setting expects on that model. See #337 for the
+    steps.
+  * asm-cli tools probe shows what the headset reported, field by field
+    (volume, line out mode, battery levels…), instead of only saving raw
+    bytes.
+  * No Sonar audio on SteamOS, continued (#325). The WirePlumber SteamOS
+    ships (0.5.14) keeps a list of the objects it hides, forgets to remove
+    an object when it goes away, and hides every id on the list from each
+    program that connects afterwards. PipeWire reuses the ids, so ASM's own
+    Sonar nodes ended up hidden from every tool ASM starts, and no link
+    could be made; restarting WirePlumber did not help, as the list fills up
+    again. On WirePlumber older than 0.5.18 with such a rule, ASM's PipeWire
+    tools now identify themselves the way WirePlumber's own do, which that
+    script leaves alone. Nothing changes elsewhere. Thanks @rasmus91 for the
+    logs.
+  * The whole desktop session could crash about 15 minutes after login
+    (#336). The DAC wheel watcher in the tray opened a new D-Bus connection
+    every two seconds while the daemon was not answering, and never closed
+    the failed ones, until the session bus ran out of file descriptors and
+    took Plasma, the browser and Steam down with it. Every attempt now
+    closes its connection. Found and fixed by @justfaked.
+  * Clips failed on the first frame with no element "h264parse" (#334). The
+    capture needs h264parse (GStreamer's "bad" plugins), which ASM neither
+    checked for nor installed, so the dependency check said everything was
+    there. It now checks for it and installs it, and the packages recommend
+    it. Thanks @ninjapinja2 for the report.
+  * Sidetone switched on by itself on the Nova Elite and Nova Pro Omni. Both
+    profiles sent the sidetone at half level on every connect for a headset
+    nobody had configured; the earcup one is the "my own voice in one ear"
+    reports. It now defaults to off, like every other model. Contributed by
+    @Denkiyaa (#332).
+  * A setting read back from the headset could disagree with what the
+    headset actually had. The reply was absorbed on its own schedule while
+    the start-up commands went out, so a value ASM had never set could be
+    pushed as its default to the headset just as the app adopted the
+    headset's own value. ASM now waits for the replies (half a second at
+    most) before sending anything.
+  * The DAC screen showed a Sonar preset while the Custom EQ was playing
+    (#330). In Custom EQ mode the curve plays on the headset itself and
+    Sonar is out of the path, but the screen kept naming the channel's Sonar
+    preset (and the Chat one). It now shows "EQ: Custom", the mode badge
+    reads C, and the Chat preset line is hidden.
+  * "Show city name" did nothing on the DAC screen for most cities (#330). A
+    name too long to fit beside the temperature went on a line below it,
+    outside the area actually drawn, so only very short names (Paris) ever
+    appeared. The line is now part of the screen and scrolls into view like
+    the rest.
+
+ -- loteran <axel.valadon@gmail.com>  Sun, 18 Oct 2026 00:00:00 +0000
+
 arctis-sound-manager (1.6.2-1) noble; urgency=medium
 
   * asm-cli tools probe. Asks the headset for its state with read-only

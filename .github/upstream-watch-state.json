@@ -1,0 +1,21 @@
+{
+  "dbus-next": "0.2.3",
+  "distrobox": "1.8.2.5",
+  "ggoled": "103f1c2c8cda06329cba43bd5edff1c289ca9240",
+  "headsetcontrol": "837c804a62c57b97c58e1cef92f3b7b5196ead23",
+  "headsetcontrol-release": "4.2.0",
+  "kernel-hid-arctis": "fe2ec83746e501645709761605c2464a44fd2929",
+  "kernel-hid-ids": "a1d9dd9f23b7e1d0c3767123b092e78821496b9f",
+  "kernel-hid-steelseries": "3d569aafe31012828e43280e2f8eb48db2e44439",
+  "kernel-release": "v7.3",
+  "kernel-usb-audio": "e9954f3fbddd25e1a01b7e5a0b72fb8b564204e0",
+  "libusb": "v1.0.30",
+  "linux-arctis-manager": "673679f90eabad1ce314306652b597df1a5fcbc7",
+  "pipewire": "1.6.11",
+  "pulsectl": "24.12.0",
+  "pyside6": "6.12.0",
+  "pyudev": "0.24.5",
+  "pyusb": "1.3.1",
+  "steelvoicemix": "v0.4.2",
+  "wireplumber": "0.5.19"
+}

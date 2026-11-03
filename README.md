@@ -136,9 +136,9 @@ The SteelSeries GG and Sonar alternative for Linux: manage your **SteelSeries Ar
 - **Sonar EQ** — full SteelSeries Sonar-style parametric EQ (Game / Chat / Micro channels):
   - Interactive EQ curve, up to 10 bands per channel
   - 353 Game presets, 9 Chat, 14 Mic — searchable, 9 favorite slots; a Mic preset also sets the mic processing
-  - **Automatic preset per game** — applies the matching Game preset when a game starts (Steam, Lutris, Heroic or by executable name), like GG's QuickSet; a preset picked by hand is remembered for that game
+  - **Automatic preset per game** — applies the matching Game preset when a game starts (Steam, Lutris, Heroic or by executable name), like GG's QuickSet; a preset picked by hand is remembered for that game (a notification says so; the tray menu puts it back to Automatic)
   - Macro sliders: Bass / Voice / Treble (±12 dB)
-  - **Spatial Audio** on Game, Media and Aux — HeSuVi virtual 7.1 fed with the game's real surround channels, Immersion (0–12 dB) and Distance (reverb) sliders, and an "Only for surround sources" option that leaves stereo audio alone
+  - **Spatial Audio** on Game, Media and Aux — HeSuVi virtual 7.1 fed with the game's real surround channels, Immersion (0–12 dB) and Distance (reverb) sliders, Sonar-style virtual speakers around the head whose level you set with a click, and an "Only for surround sources" option that leaves stereo audio alone
   - **Volume Boost** — up to +12 dB gain at the end of the filter chain
   - **Smart Volume** — Sonar's loudness targets (Quiet / Balanced / Loud)
   - All changes applied live via PipeWire biquad nodes
@@ -165,8 +165,15 @@ The SteelSeries GG and Sonar alternative for Linux: manage your **SteelSeries Ar
 
 - **ANC / Transparent mode** — reflects the physical button state in real time
 - **Device status** — battery (and the base station's spare battery), mic mute, sidetone, and more
+- **Headset settings on the Headset page** — sidetone, mic volume, volume limiter, sleep timer, ANC and the rest of what your model supports, one card per group, next to the live status
 - **Several headsets** — choose which Arctis ASM drives from the Headset page
-- **Base station settings** _(Nova Elite, Nova Pro Omni)_ — line out (speaker or stream, with the stream mix volumes), on-ear mic sidetone, screensaver and its timeout, home screen view and options
+- **Base station settings** _(Nova Elite, Nova Pro Omni)_ — line out (speaker or stream, with the stream mix volumes), on-ear mic sidetone, screensaver and its timeout, home screen view and options, the microphone and Bluetooth EQ presets; at start ASM takes what the base reports (Nova Pro Wireless too), so a change made on the base or in GG is kept, not reset
+- **Arctis Pro GameDAC settings** _(in testing)_ — sidetone (four levels, as in GG), DAC gain, line out with the game / chat / aux / mic stream mix, and the screen brightness
+- **Arctis Nova Pro Wired settings** _(in testing)_ — line out with the main / aux / mic stream mix, and the GameDAC screen's dim timer, next to gain, mic volume and sidetone
+- **Microphone volume on the Arctis 7 and Arctis 1 Wireless families** _(in testing)_
+- **Headset access: hidraw (default) or libusb** — with hidraw the kernel keeps the headset's interfaces and the system keeps seeing the battery; ASM falls back to libusb on its own if hidraw cannot open, and libusb stays available in Settings
+- **Arctis GameBuds audio source** _(in testing)_ — play from the 2.4 GHz dongle or from Bluetooth
+- **Arctis Pro Wireless settings** _(in testing)_ — volume limiter, muted-mic LED, screensaver and screen delay, Bluetooth at power-up and game mute during calls, next to sidetone, auto-off and screen brightness
 - **DAC OLED display** _(Nova Pro Wireless / X, Nova Elite, Nova Pro Omni, Arctis Pro GameDAC, Arctis Pro Wireless base)_:
   - Toggle original vs custom display mode
   - Brightness, screen timeout, scroll speed
@@ -214,21 +221,22 @@ The SteelSeries GG and Sonar alternative for Linux: manage your **SteelSeries Ar
 |---|---|---|---|
 | Arctis 1 / 7X / 7P Wireless | ✅ | 7 | $\color{royalblue}{\textbf{12b3}}$, 12b6, $\color{royalblue}{\textbf{12d5}}$, $\color{royalblue}{\textbf{12d7}}$ |
 | Arctis 5 (2018) | ✅ |  | $\color{royalblue}{\textbf{12aa}}$ |
-| Arctis 7 / 7 2019 / Pro 2019 / Pro GameDAC | ✅ | 28 | $\color{royalblue}{\textbf{1260}}$, $\color{royalblue}{\textbf{12ad}}$, $\color{royalblue}{\textbf{1252}}$, $\color{royalblue}{\textbf{1280}}$ |
-| Arctis 7+ / PS5 / Xbox / Destiny | ✅ | 41 | $\color{royalblue}{\textbf{220e}}$, $\color{royalblue}{\textbf{2212}}$, $\color{royalblue}{\textbf{2216}}$, 2236 |
-| Arctis 9 Wireless | ✅ | 21 | $\color{royalblue}{\textbf{12c2}}$ |
-| Arctis Pro Wireless | ✅ | 58 | $\color{royalblue}{\textbf{1290}}$, $\color{royalblue}{\textbf{1294}}$ |
-| Arctis Nova Pro Wireless / X | ✅ | 448 | $\color{royalblue}{\textbf{12e0}}$, $\color{royalblue}{\textbf{12e5}}$, $\color{royalblue}{\textbf{225d}}$ |
-| Arctis Nova Pro Wired / Xbox Wired | ✅ | 52 | $\color{royalblue}{\textbf{12cb}}$, $\color{royalblue}{\textbf{12cd}}$ |
-| Arctis Nova Pro Omni | ✅ | 55 | $\color{royalblue}{\textbf{2290}}$ |
-| Arctis Nova 3 | ✅ | 15 | $\color{royalblue}{\textbf{12ec}}$ |
-| Arctis Nova 3P / 3X Wireless | ✅ | 39 | $\color{royalblue}{\textbf{2269}}$, $\color{royalblue}{\textbf{226d}}$ |
-| Arctis Nova 5 / 5X | ✅ | 95 | $\color{royalblue}{\textbf{2232}}$, $\color{royalblue}{\textbf{2253}}$, $\color{royalblue}{\textbf{2255}}$, $\color{royalblue}{\textbf{2264}}$ |
-| Arctis Nova 7 Gen 1 | ✅ | 53 | $\color{royalblue}{\textbf{2202}}$, $\color{royalblue}{\textbf{2206}}$, 223a, $\color{royalblue}{\textbf{227a}}$, $\color{royalblue}{\textbf{22a4}}$ |
-| Arctis Nova 7 Gen 2 | ✅ | 208 | $\color{royalblue}{\textbf{22a1}}$, $\color{royalblue}{\textbf{227e}}$, $\color{royalblue}{\textbf{2258}}$, $\color{royalblue}{\textbf{229e}}$, $\color{royalblue}{\textbf{22a9}}$, $\color{royalblue}{\textbf{22a5}}$, $\color{royalblue}{\textbf{22ab}}$ |
-| Arctis Nova 7P | ✅ | 20 | $\color{royalblue}{\textbf{220a}}$, $\color{royalblue}{\textbf{22a7}}$ |
-| Arctis Nova Elite | ✅ | 33 | $\color{royalblue}{\textbf{2244}}$, 2249, $\color{royalblue}{\textbf{2270}}$ |
-| Arctis GameBuds / GameBuds X | ✅ | 30 | $\color{royalblue}{\textbf{230a}}$, $\color{royalblue}{\textbf{2317}}$ |
+| Arctis 7 / 7 2019 / Pro GameDAC | ✅ | 26 | $\color{royalblue}{\textbf{1260}}$, $\color{royalblue}{\textbf{12ad}}$, $\color{royalblue}{\textbf{1280}}$ |
+| Arctis Pro 2019 (wired, audio only) | ✅ |  | $\color{royalblue}{\textbf{1252}}$ |
+| Arctis 7+ / PS5 / Xbox / Destiny | ✅ | 44 | $\color{royalblue}{\textbf{220e}}$, $\color{royalblue}{\textbf{2212}}$, $\color{royalblue}{\textbf{2216}}$, 2236 |
+| Arctis 9 Wireless | ✅ | 23 | $\color{royalblue}{\textbf{12c2}}$ |
+| Arctis Pro Wireless | ✅ | 65 | $\color{royalblue}{\textbf{1290}}$, $\color{royalblue}{\textbf{1294}}$ |
+| Arctis Nova Pro Wireless / X | ✅ | 507 | $\color{royalblue}{\textbf{12e0}}$, $\color{royalblue}{\textbf{12e5}}$, $\color{royalblue}{\textbf{225d}}$ |
+| Arctis Nova Pro Wired / Xbox Wired | ✅ | 59 | $\color{royalblue}{\textbf{12cb}}$, $\color{royalblue}{\textbf{12cd}}$ |
+| Arctis Nova Pro Omni | ✅ | 68 | $\color{royalblue}{\textbf{2290}}$ |
+| Arctis Nova 3 | ✅ | 18 | $\color{royalblue}{\textbf{12ec}}$ |
+| Arctis Nova 3P / 3X Wireless | ✅ | 47 | $\color{royalblue}{\textbf{2269}}$, $\color{royalblue}{\textbf{226d}}$ |
+| Arctis Nova 5 / 5X | ✅ | 113 | $\color{royalblue}{\textbf{2232}}$, $\color{royalblue}{\textbf{2253}}$, $\color{royalblue}{\textbf{2255}}$, $\color{royalblue}{\textbf{2264}}$ |
+| Arctis Nova 7 Gen 1 | ✅ | 63 | $\color{royalblue}{\textbf{2202}}$, $\color{royalblue}{\textbf{2206}}$, $\color{royalblue}{\textbf{223a}}$, $\color{royalblue}{\textbf{227a}}$, $\color{royalblue}{\textbf{22a4}}$ |
+| Arctis Nova 7 Gen 2 | ✅ | 235 | $\color{royalblue}{\textbf{22a1}}$, $\color{royalblue}{\textbf{227e}}$, $\color{royalblue}{\textbf{2258}}$, $\color{royalblue}{\textbf{229e}}$, $\color{royalblue}{\textbf{22a9}}$, $\color{royalblue}{\textbf{22a5}}$, $\color{royalblue}{\textbf{22ab}}$ |
+| Arctis Nova 7P | ✅ | 24 | $\color{royalblue}{\textbf{220a}}$, $\color{royalblue}{\textbf{22a7}}$ |
+| Arctis Nova Elite | ✅ | 45 | $\color{royalblue}{\textbf{2244}}$, 2249, $\color{royalblue}{\textbf{2270}}$ |
+| Arctis GameBuds / GameBuds X | ✅ | 35 | $\color{royalblue}{\textbf{230a}}$, $\color{royalblue}{\textbf{2317}}$ |
 <!-- STATS:DEVICES:END -->
 
 > ✅ Confirmed by at least one opted-in user
@@ -897,7 +905,7 @@ To request a new language, open a [GitHub issue](https://github.com/loteran/Arct
 ## Community stats
 
 <!-- STATS:META:START -->
-_Based on **1244** unique users (**70601** anonymous data points) — last updated 2026-10-15_
+_Based on **1435** unique users (**73919** anonymous data points) — last updated 2026-11-02_
 <!-- STATS:META:END -->
 
 > Anonymous usage data shared voluntarily by opted-in users.
@@ -909,36 +917,36 @@ _Based on **1244** unique users (**70601** anonymous data points) — last updat
 <!-- STATS:TESTED_DISTROS:START -->
 | Distribution | Install method | Users |
 |---|---|---|
-| CachyOS | 🎯 AUR | 👥 497 |
-| Arch Linux | 🎯 AUR | 👥 258 |
-| Nobara Linux 44 (KDE Plasma Desktop Edition) | 🎯 COPR | 👥 77 |
-| Fedora Linux 44 (KDE Plasma Desktop Edition) | 🎯 COPR | 👥 67 |
-| Linux Mint 22.3 | 🎯 PPA | 👥 63 |
-| Ubuntu 26.04.1 LTS | 🎯 PPA | 👥 37 |
-| EndeavourOS | 🎯 AUR | 👥 29 |
-| Pop!_OS 24.04 LTS | 🎯 PPA | 👥 27 |
-| Omarchy | 🎯 AUR | 👥 24 |
-| Fedora Linux 44 (Workstation Edition) | 🎯 COPR | 👥 24 |
-| Ubuntu 26.04 LTS | 🎯 PPA | 👥 20 |
+| CachyOS | 🎯 AUR | 👥 574 |
+| Arch Linux | 🎯 AUR | 👥 299 |
+| Nobara Linux 44 (KDE Plasma Desktop Edition) | 🎯 COPR | 👥 88 |
+| Fedora Linux 44 (KDE Plasma Desktop Edition) | 🎯 COPR | 👥 79 |
+| Linux Mint 22.3 | 🎯 PPA | 👥 73 |
+| Ubuntu 26.04.1 LTS | 🎯 PPA | 👥 45 |
+| Pop!_OS 24.04 LTS | 🎯 PPA | 👥 31 |
+| EndeavourOS | 🎯 AUR | 👥 30 |
+| Omarchy | 🎯 AUR | 👥 28 |
+| Fedora Linux 44 (Workstation Edition) | 🎯 COPR | 👥 28 |
+| Ubuntu 26.04 LTS | 🎯 PPA | 👥 18 |
 | Nobara Linux 43 (KDE Plasma Desktop Edition) | 🎯 COPR | 👥 14 |
-| Garuda Linux | 🎯 AUR | 👥 13 |
+| Garuda Linux | 🎯 AUR | 👥 14 |
+| Manjaro Linux | 🎯 AUR | 👥 10 |
 | Bazzite | 📦 Source | 👥 10 |
 | Ubuntu 24.04.4 LTS | 🎯 PPA | 👥 9 |
-| Manjaro Linux | 🎯 AUR | 👥 9 |
+| Fedora Linux 44 (Forty Four) | 🎯 COPR | 👥 9 |
 | NixOS 26.11 (Zokor) | 📦 Source | 👥 8 |
-| Fedora Linux 44 (Forty Four) | 🎯 COPR | 👥 6 |
-| Debian GNU/Linux 13 (trixie) | 🎯 PPA | 👥 5 |
+| NixOS 26.05 (Yarara) | 📦 Source | 👥 6 |
+| Debian GNU/Linux 13 (trixie) | 🎯 PPA | 👥 6 |
+| Ubuntu 24.04.5 LTS | 🎯 PPA | 👥 5 |
+| Zorin OS 18.1 | 🎯 PPA | 👥 4 |
 | SteamOS | 📦 Source | 👥 4 |
 | PikaOS 4 | 📦 Source | 👥 4 |
 | Artix Linux | 🎯 AUR | 👥 4 |
-| Zorin OS 18.1 | 🎯 PPA | 👥 3 |
-| Ubuntu 24.04.5 LTS | 🎯 PPA | 👥 3 |
-| NixOS 26.05 (Yarara) | 📦 Source | 👥 3 |
+| Ubuntu 26.10 | 🎯 PPA | 👥 3 |
 | Fedora Linux 43 (KDE Plasma Desktop Edition) | 🎯 COPR | 👥 3 |
+| openSUSE Tumbleweed | 📦 Source | 👥 2 |
 | Ultramarine Linux 44 (Plasma Edition) | 📦 Source | 👥 2 |
-| Nyarch Linux | 🎯 AUR | 👥 2 |
-| Linux Mint 22.2 | 🎯 PPA | 👥 2 |
-| elementary OS 8 | 🎯 PPA | 👥 1 |
+| TUXEDO OS | 📦 Source | 👥 2 |
 <!-- STATS:TESTED_DISTROS:END -->
 </details>
 
@@ -948,44 +956,43 @@ _Based on **1244** unique users (**70601** anonymous data points) — last updat
 <!-- STATS:HEADSETS:START -->
 | Headset | Installs |
 |---|---|
-| Arctis Nova Pro Wireless | 448 |
-| Arctis Nova 7 (Gen 2) | 208 |
-| Arctis Nova 5 Wireless | 95 |
-| Arctis Pro Wireless | 58 |
-| Arctis Nova Pro Omni | 55 |
-| Arctis Nova 7 (Gen 1) | 53 |
-| Arctis Nova Pro Wired | 52 |
-| Arctis 7+ | 41 |
-| Arctis Nova Elite | 33 |
-| Arctis Nova 3 Wireless | 32 |
-| Arctis GameBuds | 30 |
-| Arctis Nova 3 | 22 |
-| Arctis 7/Pro Gaming | 21 |
-| Arctis 9 Wireless | 21 |
-| Arctis Nova 7P (Gen 2) | 15 |
+| Arctis Nova Pro Wireless | 507 |
+| Arctis Nova 7 (Gen 2) | 235 |
+| Arctis Nova 5 Wireless | 113 |
+| Arctis Nova Pro Omni | 68 |
+| Arctis Pro Wireless | 65 |
+| Arctis Nova 7 (Gen 1) | 63 |
+| Arctis Nova Pro Wired | 59 |
+| Arctis Nova Elite | 45 |
+| Arctis 7+ | 44 |
+| Arctis Nova 3 Wireless | 40 |
+| Arctis GameBuds | 35 |
+| Arctis 7/Pro Gaming | 26 |
+| Arctis Nova 3 | 25 |
+| Arctis 9 Wireless | 23 |
+| Arctis Nova 7P (Gen 2) | 17 |
 | Arctis 1/7X/7P Wireless | 7 |
-| Arctis Pro GameDAC | 7 |
-| Arctis Nova 7P (Gen 1) | 5 |
+| Arctis Nova 7P (Gen 1) | 7 |
 <!-- STATS:HEADSETS:END -->
 
 <!-- STATS:DISTROS:START -->
 | Distribution | Installs |
 |---|---|
-| CachyOS | 497 |
-| Arch Linux | 258 |
-| Nobara Linux 44 (KDE Plasma Desktop Edition) | 77 |
-| Fedora Linux 44 (KDE Plasma Desktop Edition) | 67 |
-| Linux Mint 22.3 | 63 |
-| Ubuntu 26.04.1 LTS | 37 |
-| EndeavourOS | 29 |
-| Pop!_OS 24.04 LTS | 27 |
-| Omarchy | 24 |
-| Fedora Linux 44 (Workstation Edition) | 24 |
-| Ubuntu 26.04 LTS | 20 |
+| CachyOS | 574 |
+| Arch Linux | 299 |
+| Nobara Linux 44 (KDE Plasma Desktop Edition) | 88 |
+| Fedora Linux 44 (KDE Plasma Desktop Edition) | 79 |
+| Linux Mint 22.3 | 73 |
+| Ubuntu 26.04.1 LTS | 45 |
+| Pop!_OS 24.04 LTS | 31 |
+| EndeavourOS | 30 |
+| Omarchy | 28 |
+| Fedora Linux 44 (Workstation Edition) | 28 |
+| Ubuntu 26.04 LTS | 18 |
 | Nobara Linux 43 (KDE Plasma Desktop Edition) | 14 |
-| Garuda Linux | 13 |
+| Garuda Linux | 14 |
+| Manjaro Linux | 10 |
 | Bazzite | 10 |
-| Ubuntu 24.04.4 LTS | 9 |
 <!-- STATS:DISTROS:END -->
 </details>
 
@@ -1260,7 +1267,7 @@ Thanks to everyone who has contributed code, fixes, or community support:
 
 | Contributor | Contribution |
 |---|---|
-| [Denkiyaa](https://github.com/Denkiyaa) | Designed and built the Clips feature — rolling screen capture with one audio track per Sonar channel, poster-frame library, trim/mix editor and sharing, the opt-in package installer, and the `asm-clipd` daemon ([#159](https://github.com/loteran/Arctis-Sound-Manager/pull/159)); the Channels output-device picker; stopped the Home page rebuilding its application lists twice a second ([#187](https://github.com/loteran/Arctis-Sound-Manager/pull/187)); clips at the game's real frame rate, GPU export and wheel-proof dropdowns ([#323](https://github.com/loteran/Arctis-Sound-Manager/pull/323)) |
+| [Denkiyaa](https://github.com/Denkiyaa) | Designed and built the Clips feature — rolling screen capture with one audio track per Sonar channel, poster-frame library, trim/mix editor and sharing, the opt-in package installer, and the `asm-clipd` daemon ([#159](https://github.com/loteran/Arctis-Sound-Manager/pull/159)); the Channels output-device picker; stopped the Home page rebuilding its application lists twice a second ([#187](https://github.com/loteran/Arctis-Sound-Manager/pull/187)); clips at the game's real frame rate, GPU export and wheel-proof dropdowns ([#323](https://github.com/loteran/Arctis-Sound-Manager/pull/323)); the headset's settings on the Headset page in cards, and a Settings page that no longer scrolls sideways ([#333](https://github.com/loteran/Arctis-Sound-Manager/pull/333)); sidetone left off for headsets nobody configured ([#332](https://github.com/loteran/Arctis-Sound-Manager/pull/332)) |
 | [Michsior14](https://github.com/Michsior14) | Fix Arctis 7+ power status recognition ([#67](https://github.com/loteran/Arctis-Sound-Manager/pull/67)) |
 | [H0DG3](https://github.com/H0DG3) | Identified the fontconfig cache fix for font rendering on Bazzite/Distrobox |
 | [cookiekiller](https://github.com/cookiekiller) | Diagnosed the loopback watchdog orphan-recreation bug ([#84](https://github.com/loteran/Arctis-Sound-Manager/issues/84)); detailed analysis and fix suggestions for per-channel EQ coupling, Discord routing override, and weather log spam ([#85](https://github.com/loteran/Arctis-Sound-Manager/issues/85)) |
@@ -1270,6 +1277,8 @@ Thanks to everyone who has contributed code, fixes, or community support:
 | [hotdoghotdog5](https://github.com/hotdoghotdog5) | Reverse-engineered the Arctis Nova Pro Omni's real protocol on hardware (a Windows GG capture, SteelSeries' own device specification, and Linux writes confirmed by reading values back off the base station) — sidetone, the volume limiter, ANC and its level, transparency, mic volume and LED, the OLED screen, the auto-off timer, and accurate battery/charging/Bluetooth status all came from this ([#70](https://github.com/loteran/Arctis-Sound-Manager/issues/70), [#147](https://github.com/loteran/Arctis-Sound-Manager/issues/147)) |
 | [rhavinx](https://github.com/rhavinx) | USB captures of the Arctis Nova 3P / 3X Wireless that pinned down ChatMix, mic-mute, battery, connection and charging events, leading to the family's own dedicated device profile ([#149](https://github.com/loteran/Arctis-Sound-Manager/issues/149)) |
 | [Svenum](https://github.com/Svenum) | Fixed a Nix flake evaluation error and a `LADSPA_PATH` override needed for `filter-chain` (PR [#83](https://github.com/loteran/Arctis-Sound-Manager/pull/83), #79) |
+| [jgopel](https://github.com/jgopel) | Kept the Nix package building on newer nixpkgs, whose Python packages switched to structured attributes ([#344](https://github.com/loteran/Arctis-Sound-Manager/pull/344)) |
+| [zaxen](https://github.com/zaxen) | Kept the Output channel on its saved device across a temporary fallback, so a monitor waking from sleep gets its audio back ([#356](https://github.com/loteran/Arctis-Sound-Manager/pull/356)) |
 | [nobodys-tools](https://github.com/nobodys-tools) | Contributed the missing default HRIR seeding for module-only installs (#79) and the fix for the virtual-microphone hijack bug ([#185](https://github.com/loteran/Arctis-Sound-Manager/issues/185)); found and diagnosed precisely the Home page's endless background refresh ([#182](https://github.com/loteran/Arctis-Sound-Manager/issues/182)) |
 | [jsuvanto](https://github.com/jsuvanto) | Diagnosed the USB-permissions boot-time race on Nobara down to its root cause, alongside DefactoCasual (discussion [#140](https://github.com/loteran/Arctis-Sound-Manager/discussions/140)) |
 | [DefactoCasual](https://github.com/DefactoCasual) | Diagnosed the USB-permissions boot-time race on Nobara down to its root cause, alongside jsuvanto (discussion [#140](https://github.com/loteran/Arctis-Sound-Manager/discussions/140)) |
@@ -1278,8 +1287,13 @@ Thanks to everyone who has contributed code, fixes, or community support:
 | [kevinpbaker](https://github.com/kevinpbaker) | Traced the Arctis Nova Pro Omni's dead ChatMix knob to a firmware race — the base station abandons its Game/Chat mode switch if the next command lands within a few milliseconds — and fixed it with a settle pause in `device_init` ([#245](https://github.com/loteran/Arctis-Sound-Manager/pull/245)); diagnosed and fixed the wake-from-suspend deadlock that regressed in 1.4.25, from a `py-spy` dump of the hung daemon ([#251](https://github.com/loteran/Arctis-Sound-Manager/pull/251)) |
 | [AnimeKittyFang](https://github.com/AnimeKittyFang) | Found that the station volume dial (Nova Pro's DAC master wheel) was read from HID status but never applied to any PipeWire sink, and that the shared `percentage()` scaling helper flipped direction on inverted ranges, cancelling out its own fix — both confirmed against real Nova Pro Wireless hardware ([#255](https://github.com/loteran/Arctis-Sound-Manager/pull/255)) |
 | [Kolaigg](https://github.com/Kolaigg) | Fixed the NixOS build, which was missing the script that generates the Plasma widget translations ([#310](https://github.com/loteran/Arctis-Sound-Manager/pull/310)) |
-| [rasmus91](https://github.com/rasmus91) | Logs that exposed the SteamOS link-permission errors, including the Game Mode case the repair did not cover ([#181](https://github.com/loteran/Arctis-Sound-Manager/issues/181)) |
+| [rasmus91](https://github.com/rasmus91) | Logs that exposed the SteamOS link-permission errors, including the Game Mode case the repair did not cover ([#181](https://github.com/loteran/Arctis-Sound-Manager/issues/181)); the resume logs that showed ASM losing the dongle until a restart ([#325](https://github.com/loteran/Arctis-Sound-Manager/issues/325)) |
 | [TheV-git](https://github.com/TheV-git) | Narrowed the Nova Pro Wired volume-knob failures down to the custom display and ASM's commands ([#321](https://github.com/loteran/Arctis-Sound-Manager/issues/321)) |
+| [justfaked](https://github.com/justfaked) | Tracked a desktop session that kept dying on Bazzite down to ASM: the DAC wheel watcher leaked a D-Bus connection on every failed retry until the session bus ran out of file descriptors, and fixed it ([#336](https://github.com/loteran/Arctis-Sound-Manager/pull/336)) |
+| [FrDrebin](https://github.com/FrDrebin) | Tested the Nova Pro Omni's settings and screen on hardware, traced its screen glitch to the charging battery, and posted the probe ASM now reads the Omni's base station settings from ([#330](https://github.com/loteran/Arctis-Sound-Manager/issues/330), [#331](https://github.com/loteran/Arctis-Sound-Manager/issues/331)) |
+| [PointyKite](https://github.com/PointyKite) | Tested the Nova Elite's on-device EQ against GG on Windows, and posted the probe that settled the Elite's settings layout and its microphone / Bluetooth EQ frames ([#327](https://github.com/loteran/Arctis-Sound-Manager/issues/327), [#331](https://github.com/loteran/Arctis-Sound-Manager/issues/331)) |
+| [globeFrEak](https://github.com/globeFrEak) | The Arctis 9 probe that showed ASM never read its status and sent its auto-off delay in seconds ([#331](https://github.com/loteran/Arctis-Sound-Manager/issues/331)) |
+| [ziggityzack](https://github.com/ziggityzack) | Reproduced and timed a tray crash on quit while PipeWire stopped answering, and traced it in the code to an uncaught pactl timeout, a "kill" fallback that only sent SIGTERM, and the router re-sending the same move to an idle pinned stream every 5 seconds ([#349](https://github.com/loteran/Arctis-Sound-Manager/issues/349)) |
 
 ---
 

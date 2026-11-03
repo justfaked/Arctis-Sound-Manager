@@ -312,21 +312,35 @@ def build_sink_options(sinks, list_name: str) -> list[dict[str, str]]:
     Bluetooth alike. The headset itself is included: pointing the Output
     channel at it is a deliberate, supported setup (#139). ASM still never
     auto-selects it — that stays gated by is_external_output_sink()'s default.
+
+    A nick several sinks share is no id at all: every output of one USB card
+    is "USB Audio" (WirePlumber's alsa.lua), so only the first one was listed
+    and the setting resolved to it whichever the user meant (#339). Those
+    sinks get their node.name instead.
     """
     from arctis_sound_manager.pw_utils import is_external_output_sink
 
-    result: list[dict[str, str]] = []
+    listed = []
     for sink in sinks:
         node_name = sink.proplist.get('node.name', '')
-
         if list_name == 'external_audio_devices' and not is_external_output_sink(
             SimpleNamespace(name=node_name, proplist=sink.proplist),
             allow_headset=True,
         ):
             continue
+        listed.append((sink, node_name))
 
+    nick_owners: dict[str, set[str]] = {}
+    for sink, node_name in listed:
         nick = sink.proplist.get('node.nick', '')
-        identifier = nick or node_name
+        if nick:
+            nick_owners.setdefault(nick, set()).add(node_name)
+
+    result: list[dict[str, str]] = []
+    for sink, node_name in listed:
+        nick = sink.proplist.get('node.nick', '')
+        shared = len(nick_owners.get(nick, ())) > 1
+        identifier = node_name if (shared and node_name) else (nick or node_name)
         name = (sink.proplist.get('node.description', '') or nick
                 or getattr(sink, 'description', '') or node_name)
 
@@ -409,6 +423,9 @@ class ArctisManagerDbusSettingsService(ServiceInterface):
             # checking only the latter hid the control from the very headsets
             # the parametric support was written for (reported in #146).
             settings['has_hardware_eq'] = self.core_engine.has_hardware_eq()
+            config = self.core_engine.device_config
+            settings['hardware_eq_range_db'] = (
+                config.hardware_eq_range_db if config is not None else 10)
 
         return json.dumps(settings)
     
@@ -423,7 +440,10 @@ class ArctisManagerDbusSettingsService(ServiceInterface):
             # an out-of-domain curve was replayed by _apply_stored_eq() at
             # every daemon start — the file outlived the call that produced it.
             from arctis_sound_manager.core import sanitise_eq_bands
-            bands = sanitise_eq_bands(bands, self.logger)
+            config = self.core_engine.device_config
+            bands = sanitise_eq_bands(
+                bands, self.logger,
+                config.hardware_eq_range_db if config is not None else 10)
             if bands is None:
                 return False
             eq_file = Path.home() / '.config' / 'arctis_manager' / 'eq_bands.json'
@@ -659,6 +679,17 @@ class ArctisManagerDbusSettingsService(ServiceInterface):
             if setting == 'pipewire_quantum':
                 from arctis_sound_manager.pw_utils import apply_force_quantum
                 apply_force_quantum(int(value))
+
+            if setting == 'usb_transport':
+                # Re-acquire the headset with the other transport: hand the
+                # interfaces back (libusb) or close the nodes (hidraw), then
+                # take it again. Same background-thread reasoning as below.
+                self.logger.info("usb_transport set to %r — re-acquiring the headset", value)
+                threading.Thread(
+                    target=self.core_engine.configure_virtual_sinks,
+                    name='asm-usb-transport-switch',
+                    daemon=True,
+                ).start()
 
             if setting == 'preferred_device':
                 # Apply the new preference right away instead of waiting for the

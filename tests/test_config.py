@@ -32,7 +32,7 @@ def test_config_parse():
     assert config.command_padding.filler == 0x00
 
     assert config.device_init is not None
-    assert len(config.device_init) == 38
+    assert len(config.device_init) == 37  # the stray 3-band custom_eq write is gone
 
     assert config.status is not None
     assert config.status.request == 0x06b0
@@ -96,7 +96,8 @@ def test_config_parse():
     assert gain.type == SettingType.TOGGLE
     assert gain.default_value == 0x02
     gain_kwargs = gain.get_kwargs()
-    assert len(gain_kwargs) == 1
+    assert len(gain_kwargs) == 2
+    assert gain_kwargs['section'] == 'headset'
     assert gain_kwargs['values'] == {'off': 0x01, 'on': 0x02, 'off_label': 'low', 'on_label': 'high'}
 
 def test_ConfigStatusResponseMapping_get_status_values():

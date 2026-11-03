@@ -294,6 +294,11 @@ device:
   # the spec, not yet confirmed on a real Elite.
   hardware_eq:
     format: elite_parametric
+    # GG's own layout for this family: 32/64 Hz, low shelf on band 1, high
+    # shelf on band 10 (read off its 0x1B frames, #327).
+    band_layout: shelving
+    # eqBand gain is -12.0..12.0 in the spec, and GG sends the full ±12.
+    range_db: 12
     eq_command: 0x1b
     report_id: 0x01
     feature_report_size: 1036
@@ -303,12 +308,62 @@ device:
     report_id: 0x01
     wvalue: 0x0300
     width: 128
-    height: 64
+    # GG draws 128x52 at y=12 (draw_bitmap in base_arctis_nova_elite_tx): the
+    # 12 rows above are the base station's own status strip. Painted over, the
+    # Omni (same spec) redraws its whole screen whenever its charging
+    # indicator changes (#330); the Nova Pro Wired did the same (#321).
+    height: 52
+    y_offset: 12
     # SteelSeries' spec for this base station (base_arctis_nova_elite_tx):
     # draw_bitmap goes out as HIDFEATURE chunks of 1036 bytes, not the Nova
     # Pro's; brightness 0x85 takes 1-10, so 0 cannot switch the panel off.
     frame_report_size: 1036
     min_brightness: 1
+
+  # What the base station already has, read before device_init pushes
+  # anything: only settings the user never chose here take these values
+  # (see core._absorb_settings_readback). Offsets from the spec
+  # (base_arctis_nova_elite_tx wireless_settings, ux_settings and
+  # audio_settings), checked against an Elite probe (#331). Left out on
+  # purpose: the radio EQ preset (ASM's EQ mode decides it, Sonar or
+  # Custom) and the station volume (the spec reads 0-38, ASM writes 0-56).
+  # The base keeps its settings: at start, what it reports wins (#359).
+  settings_readback_wins: true
+  settings_readback:
+    - request: 0x01b0              # wireless_settings
+      starts_with: 0x01b0
+      mapping:
+        bluetooth_default: 0x02        # bt_power_default
+        bluetooth_auto_mute: 0x03      # bt_call_default
+        transparent_noise_cancelling_level: 0x08
+        noise_cancelling: 0x0a         # transparent_anc_mode
+        mic_led_brightness: 0x0b       # muted_mic_brightness
+        auto_off_time_minutes: 0x0c    # inactivity_timer, 0-6 as written
+        wireless_mode: 0x0d
+        noise_cancelling_level: 0x10   # active_noise_cancellation
+    - request: 0x0180              # ux_settings
+      starts_with: 0x0180
+      mapping:
+        station_screen_saver_timeout: 0x02
+        station_screen_brightness: 0x03
+        station_home_screen_view: 0x05
+        station_screensaver: 0x0a
+        station_home_screen_options: 0x0b
+    - request: [0x01, 0x20]        # audio_settings, a feature report
+      reply: feature
+      report_id: 0x01
+      size: 1036
+      starts_with: 0x20
+      mapping:
+        gain: 0x8f                     # volume_limiter
+        mic_volume: 0x91
+        line_out: 0x93
+        equalizer_mic: 0x95            # microphone_selected_eq_preset
+        equalizer_bluetooth: 0x96      # bluetooth_selected_eq_preset
+        line_out_stream_main_left_volume: 0x9b   # stream_main
+        line_out_stream_aux_volume: 0x9d
+        mic_sidetone_boom: [0xa9, 0x92]  # boom_sidetone_state, level
+        mic_sidetone_ear: [0xab, 0xaa]   # on_ear_sidetone_state, level
 
   # Read-only queries for `asm-cli tools probe` (generated from the
   # spec by gg_draft.py): their raw replies check a spec layout
@@ -325,7 +380,7 @@ device:
       reply: feature
       size: 1036
       report_id: 0x01
-      fields: {radio_selected_eq_preset: 1, alias_name: [2, 6], name: [8, 61], eq_band_1: [69, 11], eq_band_2: [80, 11], eq_band_3: [91, 11], eq_band_4: [102, 11], eq_band_5: [113, 11], eq_band_6: [124, 11], eq_band_7: [135, 11], eq_band_8: [146, 11], eq_band_9: [157, 11], eq_band_10: [168, 11]}
+      fields: {radio_selected_eq_preset: 1, alias_name: [2, 6], name: [8, 61], eq_band_1: [69, 6], eq_band_2: [75, 6], eq_band_3: [81, 6], eq_band_4: [87, 6], eq_band_5: [93, 6], eq_band_6: [99, 6], eq_band_7: [105, 6], eq_band_8: [111, 6], eq_band_9: [117, 6], eq_band_10: [123, 6]}
     - name: read_bluetooth_eq_settings
       frame: [0x01, 0x1e]
       reply: feature
@@ -343,7 +398,7 @@ device:
       reply: feature
       size: 1036
       report_id: 0x01
-      fields: {custom_eq_band_1: [1, 11], custom_eq_band_2: [12, 11], custom_eq_band_3: [23, 11], custom_eq_band_4: [34, 11], custom_eq_band_5: [45, 11], custom_eq_band_6: [56, 11], custom_eq_band_7: [67, 11], custom_eq_band_8: [78, 11], custom_eq_band_9: [89, 11], custom_eq_band_10: [100, 11], eq_band_1: [111, 11], eq_band_2: [122, 11], eq_band_3: [133, 11], eq_band_4: [144, 11], eq_band_5: [155, 11], eq_band_6: [166, 11], eq_band_7: [177, 11], eq_band_8: [188, 11], eq_band_9: [199, 11], eq_band_10: [210, 11], bt_gain1: 221, bt_gain2: 222, bt_gain3: 223, bt_gain4: 224, bt_gain5: 225, bt_gain6: 226, bt_gain7: 227, bt_gain8: 228, bt_gain9: 229, bt_gain10: 230, mic_gain1: 231, mic_gain2: 232, mic_gain3: 233, mic_gain4: 234, mic_gain5: 235, mic_gain6: 236, mic_gain7: 237, mic_gain8: 238, mic_gain9: 239, mic_gain10: 240, audio_input: 241, volume: 242, volume_limiter: 243, surround_mode: 244, mic_volume: 245, boom_sidetone_level: 246, line_out_mode: 247, radio_selected_eq_preset: 248, microphone_selected_eq_preset: 249, bluetooth_selected_eq_preset: 250, chatmix_game: 251, chatmix_chat: 252, stream_main: 255, stream_aux: 257, stream_mic: 258, mic_noise_reduction_setting: 264, mic_boom_reduction_level: 265, on_ear_mic_reduction_level: 266, boom_sidetone_state: 269, on_ear_sidetone_level: 270, on_ear_sidetone_state: 271}
+      fields: {custom_eq_band_1: [1, 6], custom_eq_band_2: [7, 6], custom_eq_band_3: [13, 6], custom_eq_band_4: [19, 6], custom_eq_band_5: [25, 6], custom_eq_band_6: [31, 6], custom_eq_band_7: [37, 6], custom_eq_band_8: [43, 6], custom_eq_band_9: [49, 6], custom_eq_band_10: [55, 6], eq_band_1: [61, 6], eq_band_2: [67, 6], eq_band_3: [73, 6], eq_band_4: [79, 6], eq_band_5: [85, 6], eq_band_6: [91, 6], eq_band_7: [97, 6], eq_band_8: [103, 6], eq_band_9: [109, 6], eq_band_10: [115, 6], bt_gain1: 121, bt_gain2: 122, bt_gain3: 123, bt_gain4: 124, bt_gain5: 125, bt_gain6: 126, bt_gain7: 127, bt_gain8: 128, bt_gain9: 129, bt_gain10: 130, mic_gain1: 131, mic_gain2: 132, mic_gain3: 133, mic_gain4: 134, mic_gain5: 135, mic_gain6: 136, mic_gain7: 137, mic_gain8: 138, mic_gain9: 139, mic_gain10: 140, audio_input: 141, volume: 142, volume_limiter: 143, surround_mode: 144, mic_volume: 145, boom_sidetone_level: 146, line_out_mode: 147, radio_selected_eq_preset: 148, microphone_selected_eq_preset: 149, bluetooth_selected_eq_preset: 150, chatmix_game: 151, chatmix_chat: 152, stream_main: 155, stream_aux: 157, stream_mic: 158, mic_noise_reduction_setting: 164, mic_boom_reduction_level: 165, on_ear_mic_reduction_level: 166, boom_sidetone_state: 169, on_ear_sidetone_level: 170, on_ear_sidetone_state: 171}
 
   settings:
     audio:
@@ -393,15 +448,19 @@ device:
           0x03: Smiley
           0x04: Custom
       equalizer_bluetooth:
+        # ten_band_eq_bt (0x1F): the spec has no select command, GG writes the
+        # whole preset (slot, name, gains) — see hardware_eq.BLUETOOTH_PRESETS.
+        # The 0x2F this used to send is in no SteelSeries spec for this family.
         type: button_group
         default: 0x00
-        update_sequence: [0x01, 0x2f, 'value']
+        ten_band_eq:
+          command: 0x1f
+          presets: bluetooth
         values_mapping:
           0x00: Flat
           0x01: bass_boost
           0x02: Focus
           0x03: Smiley
-          0x04: Custom
     microphone:
       mic_volume:
         type: slider
@@ -413,9 +472,14 @@ device:
         default: 0x0a
         update_sequence: [0x01, 0x37, 'value']
       equalizer_mic:
+        # ten_band_eq_mic (0x1D), as equalizer_bluetooth above; the 0x2E this
+        # used to send is the Nova Pro's, not this family's. GG's presets, in
+        # the slots the spec maps their names to (hardware_eq.MIC_PRESETS).
         type: button_group
         default: 0x00
-        update_sequence: [0x01, 0x2e, 'value']
+        ten_band_eq:
+          command: 0x1d
+          presets: microphone
         values_mapping:
           0x00: flat
           0x01: balanced
@@ -425,7 +489,6 @@ device:
           0x05: clarity_high_pitch
           0x06: deep_voice
           0x07: less_nasal
-          0x08: custom
       mic_sidetone_boom:
         # Byte 2 is the on/off state and byte 3 the level 1-10, exactly as on
         # the Nova Pro Omni (#161). The state byte used to be hardcoded to 1
@@ -435,13 +498,18 @@ device:
         # spans 0-10: 0 writes state=0, 1-10 write state=1 with that level. The
         # level byte stays >= 1 even while off (value.at_least_1) because the
         # firmware misbehaves on a 0 level.
+        #
+        # Off by default, like every other profile. Both sidetones are in
+        # device_init, so a default of 5 was not a hint but a command: every
+        # connection of a headset whose owner never touched the slider
+        # switched sidetone on, at half level, on its own.
         type: slider
         min: 0x00
         max: 0x0a
         step: 1
         min_label: off
         max_label: perc_100
-        default: 0x05
+        default: 0x00
         update_sequence: [0x01, 0x38, 'value.enabled', 'value.at_least_1']
       mic_sidetone_ear:
         # Same frame shape as mic_sidetone_boom above, on opcode 0x39 (#201).
@@ -451,7 +519,7 @@ device:
         step: 1
         min_label: off
         max_label: perc_100
-        default: 0x05
+        default: 0x00
         update_sequence: [0x01, 0x39, 'value.enabled', 'value.at_least_1']
       mic_led_brightness:
         type: slider
@@ -463,15 +531,6 @@ device:
         default: 0x0a
         update_sequence: [0x01, 0xbf, 'value']
     station:
-      station_volume:
-        type: slider
-        min: 0x00
-        max: 0x38
-        step: 1
-        min_label: perc_100
-        max_label: perc_0
-        default: 0x1c
-        update_sequence: [0x01, 0x25, 'value']
       line_out:
         type: button_group
         default: 0x01
@@ -579,15 +638,6 @@ device:
           0x01: preset
           0x02: meters
     connectivity:
-      wireless_mode:
-        type: toggle
-        values:
-          off: 0x00
-          on: 0x01
-          off_label: speed
-          on_label: range
-        default: 0x00
-        update_sequence: [0x01, 0xc3, 'value']
       bluetooth_default:
         type: toggle
         values:

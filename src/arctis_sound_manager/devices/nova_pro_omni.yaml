@@ -238,6 +238,11 @@ device:
   # from the spec, not yet confirmed on a real Omni.
   hardware_eq:
     format: elite_parametric
+    # GG's own layout for this family: 32/64 Hz, low shelf on band 1, high
+    # shelf on band 10 (read off its 0x1B frames, #327).
+    band_layout: shelving
+    # eqBand gain is -12.0..12.0 in the spec, and GG sends the full ±12.
+    range_db: 12
     eq_command: 0x1b
     report_id: 0x01
     feature_report_size: 1036
@@ -251,12 +256,60 @@ device:
     report_id: 0x01    # First byte of every HID report sent to the OLED
     wvalue: 0x0301     # SET_REPORT wValue: 0x0301 = HID Feature report, id 1
     width: 128         # Panel width in pixels
-    height: 64         # Panel height in pixels
+    # GG draws 128x52 at y=12 on this family (draw_bitmap in
+    # base_arctis_nova_elite_tx): the 12 rows above are the base station's own
+    # status strip. Painting over them made the Omni redraw its whole screen
+    # each time its charging indicator changed (#330), as on the Nova Pro
+    # Wired (#321).
+    height: 52
+    y_offset: 12
     # SteelSeries' spec for this base station (base_arctis_nova_elite_tx):
     # draw_bitmap goes out as HIDFEATURE chunks of 1036 bytes, not the Nova
     # Pro's; brightness 0x85 takes 1-10, so 0 cannot switch the panel off.
     frame_report_size: 1036
     min_brightness: 1
+
+  # What the base station already has, read before device_init pushes
+  # anything: only settings the user never chose here take these values
+  # (see core._absorb_settings_readback). Offsets from the spec
+  # (base_arctis_nova_elite_tx wireless_settings and ux_settings, the Omni's
+  # own audio_settings) and checked against an Omni probe (#331): the radio
+  # EQ slot read 4, the Custom slot read_radio_eq_settings returned too.
+  # The base keeps its settings: at start, what it reports wins (#359).
+  settings_readback_wins: true
+  settings_readback:
+    - request: 0x01b0              # wireless_settings
+      starts_with: 0x01b0
+      mapping:
+        bluetooth_power_status: 0x02   # bt_power_default
+        bluetooth_auto_mute: 0x03      # bt_call_default
+        transparent_level: 0x08
+        noise_cancelling: 0x0a         # transparent_anc_mode
+        mic_led_brightness: 0x0b       # muted_mic_brightness
+        pm_shutdown: 0x0c              # inactivity_timer, 0-6 as written
+        anc_level: 0x10
+    - request: 0x0180              # ux_settings
+      starts_with: 0x0180
+      mapping:
+        station_screen_saver_timeout: 0x02
+        station_home_screen_view: 0x05
+        station_screensaver: 0x0a
+        station_home_screen_options: 0x0b
+    - request: [0x01, 0x20]        # audio_settings, a feature report
+      reply: feature
+      report_id: 0x01
+      size: 1036
+      starts_with: 0x20
+      mapping:
+        volume_limiter: 0x8f
+        mic_volume: 0x91
+        mic_side_tone: [0xa9, 0x92]    # boom_sidetone_state, boom_sidetone_level
+        line_out: 0x93
+        line_out_stream_main_left_volume: 0x9b   # stream_main
+        line_out_stream_aux_volume: 0x9d
+        mic_noise_reduction: [0xa4, 0xa5]  # setting, boom level
+        equalizer_mic: 0x95            # microphone_selected_eq_preset
+        equalizer_bluetooth: 0x96      # bluetooth_selected_eq_preset
 
   # Read-only queries for `asm-cli tools probe` (generated from the
   # spec by gg_draft.py): their raw replies check a spec layout
@@ -267,7 +320,7 @@ device:
       reply: feature
       size: 1036
       report_id: 0x01
-      fields: {custom_eq_band_1: [1, 11], custom_eq_band_2: [12, 11], custom_eq_band_3: [23, 11], custom_eq_band_4: [34, 11], custom_eq_band_5: [45, 11], custom_eq_band_6: [56, 11], custom_eq_band_7: [67, 11], custom_eq_band_8: [78, 11], custom_eq_band_9: [89, 11], custom_eq_band_10: [100, 11], eq_band_1: [111, 11], eq_band_2: [122, 11], eq_band_3: [133, 11], eq_band_4: [144, 11], eq_band_5: [155, 11], eq_band_6: [166, 11], eq_band_7: [177, 11], eq_band_8: [188, 11], eq_band_9: [199, 11], eq_band_10: [210, 11], bt_gain1: 221, bt_gain2: 222, bt_gain3: 223, bt_gain4: 224, bt_gain5: 225, bt_gain6: 226, bt_gain7: 227, bt_gain8: 228, bt_gain9: 229, bt_gain10: 230, mic_gain1: 231, mic_gain2: 232, mic_gain3: 233, mic_gain4: 234, mic_gain5: 235, mic_gain6: 236, mic_gain7: 237, mic_gain8: 238, mic_gain9: 239, mic_gain10: 240, audio_input: 241, volume: 242, volume_limiter: 243, surround_mode: 244, mic_volume: 245, boom_sidetone_level: 246, line_out_mode: 247, radio_selected_eq_preset: 248, microphone_selected_eq_preset: 249, bluetooth_selected_eq_preset: 250, chatmix_game: 251, chatmix_chat: 252, stream_main: 255, stream_aux: 257, stream_mic: 258, mic_noise_reduction_setting: 264, mic_boom_reduction_level: 265, boom_sidetone_state: 269}
+      fields: {custom_eq_band_1: [1, 6], custom_eq_band_2: [7, 6], custom_eq_band_3: [13, 6], custom_eq_band_4: [19, 6], custom_eq_band_5: [25, 6], custom_eq_band_6: [31, 6], custom_eq_band_7: [37, 6], custom_eq_band_8: [43, 6], custom_eq_band_9: [49, 6], custom_eq_band_10: [55, 6], eq_band_1: [61, 6], eq_band_2: [67, 6], eq_band_3: [73, 6], eq_band_4: [79, 6], eq_band_5: [85, 6], eq_band_6: [91, 6], eq_band_7: [97, 6], eq_band_8: [103, 6], eq_band_9: [109, 6], eq_band_10: [115, 6], bt_gain1: 121, bt_gain2: 122, bt_gain3: 123, bt_gain4: 124, bt_gain5: 125, bt_gain6: 126, bt_gain7: 127, bt_gain8: 128, bt_gain9: 129, bt_gain10: 130, mic_gain1: 131, mic_gain2: 132, mic_gain3: 133, mic_gain4: 134, mic_gain5: 135, mic_gain6: 136, mic_gain7: 137, mic_gain8: 138, mic_gain9: 139, mic_gain10: 140, audio_input: 141, volume: 142, volume_limiter: 143, surround_mode: 144, mic_volume: 145, boom_sidetone_level: 146, line_out_mode: 147, radio_selected_eq_preset: 148, microphone_selected_eq_preset: 149, bluetooth_selected_eq_preset: 150, chatmix_game: 151, chatmix_chat: 152, stream_main: 155, stream_aux: 157, stream_mic: 158, mic_noise_reduction_setting: 164, mic_boom_reduction_level: 165, boom_sidetone_state: 169}
     - name: wireless_settings
       frame: [0x01, 0xb0]
       fields: {bt_power_default: 1, bt_call_default: 2, bt_connection_mode: 3, bt_connection_status: 4, headset_batt_level: 5, charger_batt_level: 6, transparent: 7, mic_mute: 8, transparent_anc_mode: 9, muted_mic_brightness: 10, inactivity_timer: 11, wireless_mode: 12, radio_connection_status: 13, charging_status: 14, active_noise_cancellation: 15}
@@ -279,7 +332,7 @@ device:
       reply: feature
       size: 1036
       report_id: 0x01
-      fields: {radio_selected_eq_preset: 1, alias_name: [2, 6], name: [8, 61], eq_band_1: [69, 11], eq_band_2: [80, 11], eq_band_3: [91, 11], eq_band_4: [102, 11], eq_band_5: [113, 11], eq_band_6: [124, 11], eq_band_7: [135, 11], eq_band_8: [146, 11], eq_band_9: [157, 11], eq_band_10: [168, 11]}
+      fields: {radio_selected_eq_preset: 1, alias_name: [2, 6], name: [8, 61], eq_band_1: [69, 6], eq_band_2: [75, 6], eq_band_3: [81, 6], eq_band_4: [87, 6], eq_band_5: [93, 6], eq_band_6: [99, 6], eq_band_7: [105, 6], eq_band_8: [111, 6], eq_band_9: [117, 6], eq_band_10: [123, 6]}
     - name: read_bluetooth_eq_settings
       frame: [0x01, 0x1e]
       reply: feature
@@ -328,6 +381,20 @@ device:
           on_label: limited
         default: 0x00 # unlimited — what GG deploys
         update_sequence: [0x01, 0x27, 'value']
+    equalizer:
+      equalizer_bluetooth:
+        # ten_band_eq_bt (0x1F), inherited unchanged from the Elite: the
+        # whole preset goes out, as GG sends it (hardware_eq.BLUETOOTH_PRESETS).
+        type: button_group
+        default: 0x00
+        ten_band_eq:
+          command: 0x1f
+          presets: bluetooth
+        values_mapping:
+          0x00: Flat
+          0x01: bass_boost
+          0x02: Focus
+          0x03: Smiley
     microphone:
       mic_volume:
         type: slider
@@ -338,6 +405,25 @@ device:
         max_label: perc_100
         default: 0x0a # 100%
         update_sequence: [0x01, 0x37, 'value']
+      equalizer_mic:
+        # ten_band_eq_mic (0x1D), redefined by the Omni's own spec to add
+        # Walkie Talkie in slot 9. No select command: GG writes the whole
+        # preset (slot, name, gains) — see hardware_eq.MIC_PRESETS.
+        type: button_group
+        default: 0x00
+        ten_band_eq:
+          command: 0x1d
+          presets: microphone
+        values_mapping:
+          0x00: flat
+          0x01: balanced
+          0x02: broadcast_high_pitch
+          0x03: broadcast_low_pitch
+          0x04: clarity_low_pitch
+          0x05: clarity_high_pitch
+          0x06: deep_voice
+          0x07: less_nasal
+          0x09: walkie_talkie
       mic_side_tone:
         # boom_mic_sidetone (0x38): byte 2 = state (0/1), byte 3 = level 1-10.
         # The slider spans 0-10: 0 writes state=0 (a true off, #161 — before
@@ -358,13 +444,14 @@ device:
         # on_ear_sidetone (0x39), same frame as the boom's 0x38: state, then
         # level 1-10. Inherited unchanged from base_arctis_nova_elite_tx;
         # copied from nova_elite.yaml (#201), not yet tried on an Omni.
+        # Off by default, like the boom sidetone above.
         type: slider
         min: 0x00
         max: 0x0a
         step: 1
         min_label: off
         max_label: perc_100
-        default: 0x05
+        default: 0x00
         update_sequence: [0x01, 0x39, 'value.enabled', 'value.at_least_1']
       mic_led_brightness:
         type: slider
@@ -523,6 +610,27 @@ device:
           0x02: meters
 
   status_parse:
+    equalizer_bluetooth:
+      type: int_str_mapping
+      values:
+        0x00: flat
+        0x01: bass_boost
+        0x02: focus
+        0x03: smiley
+        0x04: custom
+    equalizer_mic:
+      type: int_str_mapping
+      values:
+        0x00: flat
+        0x01: balanced
+        0x02: broadcast_high_pitch
+        0x03: broadcast_low_pitch
+        0x04: clarity_low_pitch
+        0x05: clarity_high_pitch
+        0x06: deep_voice
+        0x07: less_nasal
+        0x08: custom
+        0x09: walkie_talkie
     station_volume:
       type: percentage
       perc_min: 56

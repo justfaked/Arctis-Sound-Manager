@@ -98,6 +98,11 @@ device:
     # Unlike the Nova 7 Gen 2, the band frame does not repeat the connection
     # byte — including it would shift the whole curve by one byte.
     bands_carry_connection: false
+    # The Nova 5's filter payload encodes gain as gain_float_to_int:
+    # 2 x (10 + dB), 0-40, 0 dB = 20 — not the signed tenths of a dB the
+    # other parametric families use. Sent signed, a flat curve (0x00) read
+    # as -10 dB on every band.
+    gain_encoding: offset_binary
     # GG raises its inter-command delay to 600 ms between the name and the
     # bands for this family, and its USB timeout with it.
     frame_delay_ms: 600
@@ -109,16 +114,36 @@ device:
   audio:
     spatial_engine: hesuvi
 
+  # The headset's own current values, read before device_init so a setting
+  # the user never chose in ASM keeps what it had (set in GG on a dual-boot)
+  # instead of ASM's default. Confirmed on a 0x2232 by `asm-cli tools probe`
+  # (#331). Offsets count from the opcode, like response_mapping. Unlike the
+  # Nova 7 Gen 2, the 0x20 reply starts with the ten 6-byte EQ bands, so mic
+  # volume, sidetone and volume limiter are its last three bytes (61-63) —
+  # the spec's 11-byte band struct is the engine's float form, not the wire.
+  settings_readback:
+    - request: 0x20
+      starts_with: 0x20
+      mapping:
+        mic_volume: 0x3d
+        mic_side_tone: 0x3e
+        volume_limiter: 0x3f
+    - request: 0xa0
+      starts_with: 0xa0
+      mapping:
+        pm_shutdown: 0x01
+        mic_mute_led_brightness: 0x02
+
   # Read-only queries for `asm-cli tools probe` (generated from the
   # spec by gg_draft.py): their raw replies check a spec layout
   # on real hardware in one pass. Constants only — nothing is set.
   probe_queries:
     - name: audio_settings
       frame: [0x20]
-      fields: {eq_band_1: [1, 11], eq_band_2: [12, 11], eq_band_3: [23, 11], eq_band_4: [34, 11], eq_band_5: [45, 11]}
+      fields: {eq_band_1: [1, 6], eq_band_2: [7, 6], eq_band_3: [13, 6], eq_band_4: [19, 6], eq_band_5: [25, 6], eq_band_6: [31, 6], eq_band_7: [37, 6], eq_band_8: [43, 6], eq_band_9: [49, 6], eq_band_10: [55, 6], mic_volume: 61, sidetone: 62, volume_limiter: 63}
     - name: audio_settings_bt
       frame: [0x22]
-      fields: {eq_band_1: [1, 11], eq_band_2: [12, 11], eq_band_3: [23, 11], eq_band_4: [34, 11], eq_band_5: [45, 11]}
+      fields: {eq_band_1: [1, 6], eq_band_2: [7, 6], eq_band_3: [13, 6], eq_band_4: [19, 6], eq_band_5: [25, 6], eq_band_6: [31, 6], eq_band_7: [37, 6], eq_band_8: [43, 6], eq_band_9: [49, 6], eq_band_10: [55, 6]}
     - name: ux_settings
       frame: [0xa0]
       fields: {inactivity_timer: 1, muted_mic_brightness: 2, eq_sync_settings: 4}

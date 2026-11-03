@@ -106,7 +106,7 @@ def test_short_reply_does_not_crash():
 
 
 def test_profiles_without_readback_do_nothing():
-    config = DeviceConfiguration(YAML(typ="safe").load(DEVICES / "nova_5.yaml"))
+    config = DeviceConfiguration(YAML(typ="safe").load(DEVICES / "nova_3_wireless.yaml"))
     engine = _engine()
     engine.device_config = config
     engine.send_command = MagicMock()
@@ -179,3 +179,42 @@ def test_init_waits_for_every_reply_before_pushing_settings():
     CoreEngine._absorb_settings_readback(engine, [0x06, 0xB0] + [0] * 14)
     CoreEngine._absorb_settings_readback(engine, [0x06, 0x80] + [0] * 6)
     assert done.is_set()
+
+
+# The real replies of a Nova 5 (0x2232), from asm-cli tools probe (#331). 0x20
+# opens with the ten 6-byte EQ bands; mic volume, sidetone and limiter follow.
+_NOVA5_AUDIO_SETTINGS = [int(b, 16) for b in (
+    "20 1f 00 01 00 82 05 3e 00 01 00 82 05 7d 00 01 00 82 05 fa 00 01 00 82 05"
+    " f4 01 01 00 82 05 e8 03 01 00 82 05 d0 07 01 00 82 05 a0 0f 01 00 82 05"
+    " 40 1f 01 00 82 05 80 3e 01 00 82 05 0f 00 00"
+).split()]
+_NOVA5_UX_SETTINGS = [0xA0, 0x1E, 0x0A, 0x00, 0x00] + [0] * 59
+
+
+def test_nova5_reads_its_settings_after_the_eq_bands():
+    config = DeviceConfiguration(YAML(typ="safe").load(DEVICES / "nova_5.yaml"))
+    engine = MagicMock()
+    engine.device_config = config
+    engine.device_settings = DeviceSettings(0x1038, 0x2232)
+    engine.logger = MagicMock()
+    engine.get_command_endpoint_address.return_value = 0
+    engine._readback_done = threading.Event()
+    engine.send_command = lambda payload, ep: None
+
+    done = CoreEngine._request_settings_readback(engine)
+    CoreEngine._absorb_settings_readback(engine, _NOVA5_AUDIO_SETTINGS)
+    CoreEngine._absorb_settings_readback(engine, _NOVA5_UX_SETTINGS)
+
+    got = engine.device_settings.settings
+    assert len(_NOVA5_AUDIO_SETTINGS) == 64
+    assert (got["mic_volume"], got["mic_side_tone"], got["volume_limiter"]) == (15, 0, 0)
+    assert (got["pm_shutdown"], got["mic_mute_led_brightness"]) == (30, 10)
+    assert done.is_set()
+
+
+def test_npw_init_never_overwrites_the_custom_eq_slot():
+    """device_init used to send [0x06, 0x33, 20, 20, 20]: bands 4-10 of the
+    Custom slot at 0 (-10 dB) on every start, over the user's own curve."""
+    config = DeviceConfiguration(YAML(typ="safe").load(DEVICES / "nova_pro_wireless.yaml"))
+    assert not any(list(step[:2]) == [0x06, 0x33] for step in config.device_init)
+
